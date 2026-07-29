@@ -5,11 +5,19 @@ import { buscarConfiguracao, agendaDoBanco } from "@/lib/supabase/configuracoes"
 import { buscarAgendamentos, buscarBloqueios } from "@/lib/supabase/agenda";
 import { intervalosSeSobrepoem } from "@/lib/agenda-rules.mjs";
 import { chaveRateLimit, consumirRateLimit, ipDaRequisicao, limparRateLimit, respostaBloqueada } from "@/lib/supabase/rate-limit";
+import { sincronizarAgendamentoGoogle } from "@/lib/google-calendar/sync";
 
 const idsDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
 function minutos(hora: string) { const [h, m] = hora.split(":").map(Number); return h * 60 + m; }
 function protocolo() { const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return `PH10-${Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")}`; }
 function respostaReserva(item: Awaited<ReturnType<typeof buscarAgendamentos>>[number]) { return item; }
+async function tentarSincronizar(supabase: ReturnType<typeof criarClienteSupabaseAdmin>, id: string) {
+  try {
+    await sincronizarAgendamentoGoogle(supabase, id);
+  } catch (erro) {
+    console.error("Reserva salva, mas a sincronização com o Google falhou:", erro);
+  }
+}
 
 export async function GET(request: NextRequest) {
   const supabase = criarClienteSupabaseAdmin();
@@ -76,6 +84,7 @@ export async function POST(request: NextRequest) {
       const { error: erroVinculos } = await supabase.from("agendamento_combos").insert(combosSelecionados.map((selecao, ordem) => ({ agendamento_id: criada.id, combo_id: selecao.id, ordem })));
       if (erroVinculos) { await supabase.from("agendamentos").delete().eq("id", criada.id); throw erroVinculos; }
     }
+    await tentarSincronizar(supabase, criada.id);
     const reserva = (await buscarAgendamentos(supabase)).find((x) => x.id === criada.id);
     return NextResponse.json({ reserva }, { status: 201 });
   } catch {
@@ -86,6 +95,9 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const corpo = await request.json() as { codigo: string; whatsapp: string; acao: "cancelar" | "remarcar"; data?: string; hora?: string };
+    if (corpo.acao !== "cancelar" && corpo.acao !== "remarcar") {
+      return NextResponse.json({ erro: "Ação inválida." }, { status: 400 });
+    }
     const supabase = criarClienteSupabaseAdmin();
     const limite = await consumirRateLimit(supabase, chaveRateLimit("alterar-reserva-ip", ipDaRequisicao(request)), { limite: 10, janelaSegundos: 600, bloqueioSegundos: 900 });
     if (!limite.permitido) return respostaBloqueada(limite.tentar_em);
@@ -106,6 +118,7 @@ export async function PATCH(request: NextRequest) {
     const alteracao = corpo.acao === "cancelar" ? { status: "cancelado", historico } : { data: corpo.data, hora: corpo.hora, historico };
     const { error } = await supabase.from("agendamentos").update(alteracao).eq("id", reserva.id);
     if (error) throw error;
+    await tentarSincronizar(supabase, reserva.id);
     const atualizada = (await buscarAgendamentos(supabase)).find((x) => x.id === reserva.id);
     return NextResponse.json({ reserva: atualizada });
   } catch { return NextResponse.json({ erro: "Não foi possível alterar a reserva." }, { status: 400 }); }

@@ -35,10 +35,19 @@ export async function buscarClientes(supabase: SupabaseClient) {
   return data.map<Cliente>((item) => ({ id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em }));
 }
 
-export async function atualizarAgendamento(supabase: SupabaseClient, item: Agendamento) {
+export async function atualizarAgendamento(item: Agendamento) {
   const status = item.statusManual === "Cancelado" ? "cancelado" : item.statusManual === "Não compareceu" ? "nao_compareceu" : "agendado";
-  const { error } = await supabase.from("agendamentos").update({ data: item.data, hora: item.hora, status, historico: item.historicoAlteracoes ?? [] }).eq("id", item.id);
-  if (error) throw error;
+  const resposta = await fetch(`/api/admin/agendamentos/${encodeURIComponent(item.id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      data: item.data,
+      hora: item.hora,
+      status,
+      historico: item.historicoAlteracoes ?? [],
+    }),
+  });
+  if (!resposta.ok) throw new Error("Não foi possível atualizar o agendamento.");
 }
 
 export async function criarBloqueioSupabase(supabase: SupabaseClient, item: Omit<BloqueioAgenda, "id">) {

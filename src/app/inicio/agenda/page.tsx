@@ -299,7 +299,7 @@ export default function AgendaPage() {
       return { ...comAlteracao, status: statusNovo };
     });
     const atualizado = novaLista.find((item) => item.id === alvo.id);
-    if (atualizado) await atualizarAgendamento(criarClienteSupabase(), atualizado);
+    if (atualizado) await atualizarAgendamento(atualizado);
     setAgendamentos(novaLista);
     setAgendamentoEditarStatus(null);
   }
@@ -395,7 +395,7 @@ export default function AgendaPage() {
       return { ...atualizado, status: obterStatusAtendimento(atualizado, agoraRemarcacao) };
     });
     const atualizado = novaLista.find((item) => item.id === anterior.id);
-    if (atualizado) await atualizarAgendamento(criarClienteSupabase(), atualizado);
+    if (atualizado) await atualizarAgendamento(atualizado);
     setAgendamentos(novaLista);
     setDiaSelecionado(novaData);
     setAgendamentoRemarcar(null);

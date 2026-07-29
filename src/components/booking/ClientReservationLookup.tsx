@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import NoticeDialog from "@/components/NoticeDialog";
 import {
   Agendamento,
   BloqueioAgenda,
@@ -41,7 +42,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const [novaData, setNovaData] = useState("");
   const [novoHorario, setNovoHorario] = useState("");
   const [confirmacao, setConfirmacao] = useState<"cancelar" | "remarcar" | null>(null);
-  const [sucesso, setSucesso] = useState<"cancelada" | "remarcada" | null>(null);
+  const [avisoSucesso, setAvisoSucesso] = useState<{ titulo: string; descricao: string } | null>(null);
   const [relogio, setRelogio] = useState(() => Date.now());
 
   useEffect(() => {
@@ -99,7 +100,6 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     setNovaData("");
     setNovoHorario("");
     setConfirmacao(null);
-    setSucesso(null);
   }
 
   async function buscarReserva() {
@@ -117,7 +117,6 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     }
     setReserva(resultado.reserva);
     setErro("");
-    setSucesso(null);
   }
 
   async function executarConfirmacao() {
@@ -133,24 +132,17 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
     if (!resposta.ok || !resultado.reserva) { setConfirmacao(null); setErro(resultado.erro ?? "Não foi possível alterar a reserva."); return; }
     const atualizada = resultado.reserva;
-    setSucesso(confirmacao === "cancelar" ? "cancelada" : "remarcada");
+    const foiCancelada = confirmacao === "cancelar";
     const novaLista = agendamentos.map((item) => item.id === reserva.id ? atualizada : item);
     onAtualizar(novaLista);
-    setReserva(atualizada);
-    setModoRemarcar(false);
-    setNovaData("");
-    setNovoHorario("");
-    setConfirmacao(null);
     setRelogio(Date.now());
-  }
-
-  function linkAviso() {
-    if (!reserva || !sucesso) return "#";
-    const acao = sucesso === "cancelada"
-      ? `cancelei minha reserva de ${formatarData(reserva.data)} às ${reserva.hora}`
-      : `remarquei minha reserva para ${formatarData(reserva.data)} às ${reserva.hora}`;
-    const mensagem = encodeURIComponent(`Olá, PH10! ${acao}.\nCódigo: ${reserva.codigo}`);
-    return `https://wa.me/${whatsappPH10}?text=${mensagem}`;
+    fechar();
+    setAvisoSucesso({
+      titulo: foiCancelada ? "Reserva cancelada" : "Reserva remarcada",
+      descricao: foiCancelada
+        ? "Sua reserva foi cancelada e o horário já está disponível novamente."
+        : `Sua reserva foi remarcada para ${formatarData(atualizada.data)} às ${atualizada.hora}.`,
+    });
   }
 
   function linkContatoPrazo() {
@@ -177,7 +169,6 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
           </div>
         ) : (
           <div className="mt-5">
-            {sucesso && <div className="mb-4 rounded-2xl border border-green-500/20 bg-green-500/10 p-4 text-left"><p className="font-black text-green-200">Reserva {sucesso} com sucesso</p><p className="mt-1 text-xs text-neutral-400">A alteração já foi registrada. Avise a PH10 pelo WhatsApp.</p><a href={linkAviso()} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-xl bg-green-500 px-3 py-3 text-xs font-black text-white">Avisar a PH10</a></div>}
             <div className="rounded-3xl bg-neutral-950 p-4">
               <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-xs font-bold tracking-wider text-amber-400">{reserva.codigo}</p><h3 className="mt-2 text-lg font-black">{reserva.servico}</h3></div><span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-black">{status}</span></div>
               <dl className="mt-4 space-y-2 text-sm"><div className="flex justify-between gap-4"><dt className="text-neutral-400">Data</dt><dd className="font-bold">{formatarData(reserva.data)}</dd></div><div className="flex justify-between gap-4"><dt className="text-neutral-400">Horário</dt><dd className="font-bold">{reserva.hora}</dd></div><div className="flex justify-between gap-4"><dt className="text-neutral-400">Valor</dt><dd className="font-bold">{dinheiro(reserva.valor)}</dd></div></dl>
@@ -185,7 +176,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
 
             {status === "Agendado" && !dentroDoPrazo && <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4"><p className="font-black text-amber-200">Prazo de alteração encerrado</p><p className="mt-1 text-xs leading-relaxed text-neutral-400">Cancelamentos e remarcações pelo aplicativo podem ser feitos até 2 horas antes.</p><a href={linkContatoPrazo()} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-xl bg-green-500 px-3 py-3 text-xs font-black text-white">Falar com a PH10</a></div>}
 
-            {dentroDoPrazo && !modoRemarcar && !sucesso && <div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={() => setConfirmacao("cancelar")} className="rounded-2xl bg-red-500/10 px-4 py-4 text-sm font-black text-red-200">Cancelar reserva</button><button type="button" onClick={() => setModoRemarcar(true)} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Remarcar</button></div>}
+            {dentroDoPrazo && !modoRemarcar && <div className="mt-4 grid grid-cols-2 gap-3"><button type="button" onClick={() => setConfirmacao("cancelar")} className="rounded-2xl bg-red-500/10 px-4 py-4 text-sm font-black text-red-200">Cancelar reserva</button><button type="button" onClick={() => setModoRemarcar(true)} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Remarcar</button></div>}
 
             {modoRemarcar && dentroDoPrazo && (
               <div className="mt-5 border-t border-white/10 pt-5">
@@ -196,7 +187,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
               </div>
             )}
 
-            <button type="button" onClick={() => { setReserva(null); setCodigo(""); setWhatsapp(""); setSucesso(null); setModoRemarcar(false); }} className="mt-4 w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Consultar outra reserva</button>
+            <button type="button" onClick={() => { setReserva(null); setCodigo(""); setWhatsapp(""); setModoRemarcar(false); }} className="mt-4 w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Consultar outra reserva</button>
           </div>
         )}
       </div>
@@ -213,6 +204,15 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     <>
       <button type="button" onClick={() => setAberto(true)} className="mt-4 flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-xs font-black text-neutral-200 sm:w-auto">Consultar minha reserva</button>
       {modal && createPortal(modal, document.body)}
+      {avisoSucesso && createPortal(
+        <NoticeDialog
+          tipo="sucesso"
+          titulo={avisoSucesso.titulo}
+          descricao={avisoSucesso.descricao}
+          onFechar={() => setAvisoSucesso(null)}
+        />,
+        document.body,
+      )}
     </>
   );
 }

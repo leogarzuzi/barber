@@ -15,6 +15,7 @@ const menu = [
   { nome: "Clientes", href: "/inicio/clientes", icon: "◉" },
   { nome: "Serviços", href: "/inicio/servicos", icon: "✦" },
   { nome: "Perfil", href: "/inicio/perfil", icon: "◎" },
+  { nome: "Integrações", href: "/inicio/integracoes", icon: "G" },
 ];
 
 export default function BarberSidebar() {
