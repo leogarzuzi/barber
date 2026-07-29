@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import ClientReservationLookup from "@/components/booking/ClientReservationLookup";
 import {
@@ -85,11 +85,15 @@ export default function PaginaCliente() {
   const [reservaConcluida, setReservaConcluida] = useState<Agendamento | null>(null);
   const [codigoCopiado, setCodigoCopiado] = useState(false);
   const [reservaExistenteAviso, setReservaExistenteAviso] = useState<Agendamento | null>(null);
-  const [avisoFormulario, setAvisoFormulario] = useState<{ titulo: string; mensagem: string } | null>(null);
+  const [avisoFormulario, setAvisoFormulario] = useState<{ titulo: string; mensagem: string; recarregar?: boolean } | null>(null);
+  const dadosCarregadosRef = useRef(false);
+  const carregandoDadosRef = useRef(false);
 
   useEffect(() => {
     let ativo = true;
-    async function carregar() {
+    async function carregar(tentativa = 0) {
+      if (carregandoDadosRef.current) return;
+      carregandoDadosRef.current = true;
       setAgora(Date.now());
       try {
         const [respostaConfiguracao, respostaCatalogo, respostaDisponibilidade] = await Promise.all([
@@ -124,14 +128,30 @@ export default function PaginaCliente() {
           setCombos(catalogo.combos);
           setAgendamentos(disponibilidade.agendamentos.map((item) => ({ ...item, cliente: "", servico: "", valor: 0, whatsapp: "" })));
           setBloqueios(disponibilidade.bloqueios);
+          dadosCarregadosRef.current = true;
+          setCarregado(true);
+          setAvisoFormulario((avisoAtual) => avisoAtual?.recarregar ? null : avisoAtual);
         }
       } catch {
-        if (ativo) setAvisoFormulario({ titulo: "Página temporariamente indisponível", mensagem: "Não foi possível carregar os dados da barbearia. Tente novamente em instantes." });
+        if (!ativo) return;
+        if (tentativa < (dadosCarregadosRef.current ? 1 : 2)) {
+          window.setTimeout(() => {
+            if (ativo) void carregar(tentativa + 1);
+          }, 1200 * (tentativa + 1));
+        } else if (!dadosCarregadosRef.current) {
+          setCarregado(true);
+          setAvisoFormulario({
+            titulo: "Não foi possível atualizar",
+            mensagem: "A conexão oscilou durante o carregamento. Toque abaixo para tentar novamente.",
+            recarregar: true,
+          });
+        }
       } finally {
-        if (ativo) setCarregado(true);
+        carregandoDadosRef.current = false;
       }
     }
-    carregar();
+    void carregar();
+    const atualizarDados = () => void carregar();
     const eventos = [
       "storage",
       "ph10:agendamentos-atualizados",
@@ -139,13 +159,13 @@ export default function PaginaCliente() {
       "ph10:agenda-config-atualizada",
       "ph10:perfil-atualizado",
     ];
-    eventos.forEach((evento) => window.addEventListener(evento, carregar));
-    window.addEventListener("focus", carregar);
+    eventos.forEach((evento) => window.addEventListener(evento, atualizarDados));
+    window.addEventListener("focus", atualizarDados);
     const intervalo = window.setInterval(() => setAgora(Date.now()), 30_000);
     return () => {
       ativo = false;
-      eventos.forEach((evento) => window.removeEventListener(evento, carregar));
-      window.removeEventListener("focus", carregar);
+      eventos.forEach((evento) => window.removeEventListener(evento, atualizarDados));
+      window.removeEventListener("focus", atualizarDados);
       window.clearInterval(intervalo);
     };
   }, []);
@@ -218,6 +238,14 @@ export default function PaginaCliente() {
     setHorario("");
   }
 
+  function fecharAvisoFormulario() {
+    if (avisoFormulario?.recarregar) {
+      window.location.reload();
+      return;
+    }
+    setAvisoFormulario(null);
+  }
+
   async function agendar() {
     if (!servico || !dia || !horario || !nome.trim() || !whatsapp.trim()) {
       setAvisoFormulario({ titulo: "Faltam algumas informações", mensagem: "Escolha ao menos um serviço ou combo, o dia e o horário e preencha seus dados para continuar." });
@@ -254,12 +282,9 @@ export default function PaginaCliente() {
 
   function linkConfirmacaoWhatsapp(reserva: Agendamento) {
     const mensagem = encodeURIComponent(
-      `Olá, PH10! Acabei de fazer uma reserva.\n\n` +
+      `Fala comigo, PH! Tô marcado pro dia ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora}. Segue as informações, TMJ!\n\n` +
       `Nome: ${reserva.cliente}\n` +
       `Serviço: ${reserva.servico}\n` +
-      `Data: ${reserva.data.split("-").reverse().join("/")}\n` +
-      `Horário: ${reserva.hora}\n` +
-      `Valor: ${dinheiro(reserva.valor)}\n` +
       `Código: ${reserva.codigo}`
     );
     return `https://wa.me/${whatsappPH10}?text=${mensagem}`;
@@ -267,7 +292,7 @@ export default function PaginaCliente() {
 
   function linkPedidoRemarcacao(reserva: Agendamento) {
     const mensagem = encodeURIComponent(
-      `Olá, PH10! Eu já tenho uma reserva para ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora} e preciso conversar sobre uma remarcação.${reserva.codigo ? `\nCódigo: ${reserva.codigo}` : ""}`
+      `Fala comigo, PH! Já tô marcado pro dia ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora}, mas preciso trocar esse horário. Pode me ajudar?${reserva.codigo ? `\n\nCódigo: ${reserva.codigo}` : ""}`
     );
     return `https://wa.me/${whatsappPH10}?text=${mensagem}`;
   }
@@ -393,12 +418,12 @@ export default function PaginaCliente() {
       )}
 
       {avisoFormulario && (
-        <div onClick={() => setAvisoFormulario(null)} className="safe-modal-shell fixed inset-0 z-[330] flex items-center justify-center bg-black/75 backdrop-blur-sm">
+        <div onClick={fecharAvisoFormulario} className="safe-modal-shell fixed inset-0 z-[330] flex items-center justify-center bg-black/75 backdrop-blur-sm">
           <div role="alertdialog" aria-modal="true" aria-labelledby="aviso-formulario-titulo" onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center text-white shadow-2xl">
             <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-amber-400/25 bg-amber-400/10 text-2xl font-black text-amber-400">!</div>
             <h2 id="aviso-formulario-titulo" className="mt-4 text-2xl font-black">{avisoFormulario.titulo}</h2>
             <p className="mt-2 text-sm leading-relaxed text-neutral-400">{avisoFormulario.mensagem}</p>
-            <button type="button" onClick={() => setAvisoFormulario(null)} className="mt-6 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Entendi</button>
+            <button type="button" onClick={fecharAvisoFormulario} className="mt-6 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">{avisoFormulario.recarregar ? "Tentar novamente" : "Entendi"}</button>
           </div>
         </div>
       )}

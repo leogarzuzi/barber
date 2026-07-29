@@ -142,7 +142,7 @@ function statusClass(status: Status) {
 
 function whatsappLink(item: Agendamento) {
   const msg = encodeURIComponent(
-    `Olá, ${item.cliente}! Seu horário na PH10 está confirmado para ${item.hora}, serviço: ${item.servico}.`
+    `Fala, ${item.cliente}! Passando pra confirmar seu horário na PH10: dia ${item.data.split("-").reverse().join("/")} às ${item.hora}.\n\nServiço: ${item.servico}\n\nTe espero, TMJ!`
   );
 
   const numero = item.whatsapp.replace(/\D/g, "");
@@ -377,7 +377,7 @@ export default function AgendaPage() {
   function perguntarSobreRemarcacao() {
     if (!agendamentoRemarcar) return;
     const dataAtual = agendamentoRemarcar.data.split("-").reverse().join("/");
-    const mensagem = encodeURIComponent(`Oi, ${agendamentoRemarcar.cliente}! Tudo bem? Vou precisar remarcar seu horário na PH10, que está marcado para ${dataAtual} às ${agendamentoRemarcar.hora}. Qual dia e horário ficam melhores para você? Se puder, me manda algumas opções que eu confiro aqui na agenda.`);
+    const mensagem = encodeURIComponent(`Fala, ${agendamentoRemarcar.cliente}! Tudo bem? Vou precisar ajustar seu horário na PH10, que tá marcado pro dia ${dataAtual} às ${agendamentoRemarcar.hora}. Qual dia e horário ficam melhores pra você? Me manda umas opções que eu confiro aqui, pode ser?`);
     const numero = agendamentoRemarcar.whatsapp.replace(/\D/g, "");
     const numeroCompleto = numero.startsWith("55") ? numero : `55${numero}`;
     window.open(`https://wa.me/${numeroCompleto}?text=${mensagem}`, "_blank", "noopener,noreferrer");

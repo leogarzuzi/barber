@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { intervalosSeSobrepoem, validarDiasFuncionamento } from "../src/lib/agenda-rules.mjs";
+import { gerarProtocolo } from "../src/lib/protocolo.mjs";
 
 test("permite iniciar exatamente quando o atendimento anterior termina", () => {
   assert.equal(intervalosSeSobrepoem(13 * 60, 13 * 60 + 30, 12 * 60, 13 * 60), false);
@@ -30,4 +31,10 @@ test("rejeita abertura posterior ao fechamento", () => {
 
 test("rejeita pausa fora do expediente", () => {
   assert.match(validarDiasFuncionamento([{ ...diaValido, pausaFim: "19:00" }]), /pausa precisa ficar dentro/);
+});
+
+test("gera protocolo seguro no formato público esperado", () => {
+  for (let tentativa = 0; tentativa < 100; tentativa += 1) {
+    assert.match(gerarProtocolo(), /^PH10-[A-HJ-NP-Z2-9]{6}$/);
+  }
 });

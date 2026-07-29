@@ -6,10 +6,10 @@ import { buscarAgendamentos, buscarBloqueios } from "@/lib/supabase/agenda";
 import { intervalosSeSobrepoem } from "@/lib/agenda-rules.mjs";
 import { chaveRateLimit, consumirRateLimit, ipDaRequisicao, limparRateLimit, respostaBloqueada } from "@/lib/supabase/rate-limit";
 import { sincronizarAgendamentoGoogle } from "@/lib/google-calendar/sync";
+import { gerarProtocolo } from "@/lib/protocolo.mjs";
 
 const idsDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
 function minutos(hora: string) { const [h, m] = hora.split(":").map(Number); return h * 60 + m; }
-function protocolo() { const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return `PH10-${Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")}`; }
 function respostaReserva(item: Awaited<ReturnType<typeof buscarAgendamentos>>[number]) { return item; }
 async function tentarSincronizar(supabase: ReturnType<typeof criarClienteSupabaseAdmin>, id: string) {
   try {
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const { data: cliente, error: erroCliente } = await supabase.from("clientes").upsert({ nome: corpo.nome.trim(), whatsapp: corpo.whatsapp }, { onConflict: "whatsapp" }).select("id").single();
     if (erroCliente) throw erroCliente;
     const historico = [{ id: crypto.randomUUID(), tipo: "Criada", origem: "Cliente", realizadaEm: new Date().toISOString(), dataNova: corpo.data, horaNova: corpo.hora }];
-    const { data: criada, error } = await supabase.from("agendamentos").insert({ protocolo: protocolo(), cliente_id: cliente.id, cliente_nome: corpo.nome.trim(), whatsapp: corpo.whatsapp, item_tipo: itemTipo, servico_id: itemTipo === "servico" ? corpo.itens[0].id : null, combo_id: itemTipo === "combo" ? corpo.itens[0].id : null, item_nome: item.nome, data: corpo.data, hora: corpo.hora, duracao_minutos: Number(item.duracao), valor_centavos: Math.round(item.valor * 100), historico }).select("id").single();
+    const { data: criada, error } = await supabase.from("agendamentos").insert({ protocolo: gerarProtocolo(), cliente_id: cliente.id, cliente_nome: corpo.nome.trim(), whatsapp: corpo.whatsapp, item_tipo: itemTipo, servico_id: itemTipo === "servico" ? corpo.itens[0].id : null, combo_id: itemTipo === "combo" ? corpo.itens[0].id : null, item_nome: item.nome, data: corpo.data, hora: corpo.hora, duracao_minutos: Number(item.duracao), valor_centavos: Math.round(item.valor * 100), historico }).select("id").single();
     if (error) throw error;
     const servicosSelecionados = corpo.itens.filter((selecao) => selecao.tipo === "servico");
     const combosSelecionados = corpo.itens.filter((selecao) => selecao.tipo === "combo");
