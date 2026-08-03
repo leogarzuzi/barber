@@ -186,6 +186,7 @@ export default function PaginaCliente() {
   } : undefined;
   const whatsappPH10 = perfil.whatsapp;
   const duracaoSelecionada = Number(servico?.duracao.replace(/\D/g, "") || 0);
+  const duracaoParaDisponibilidade = duracaoSelecionada || Number(configuracao?.configAgenda.intervalo ?? 30);
   const funcionamentoHoje = useMemo(() => {
     if (!configuracao || !agora) return "Horário de funcionamento não configurado";
     const referencia = new Date(agora);
@@ -205,21 +206,21 @@ export default function PaginaCliente() {
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {
       const hora = horaFormatada(atual);
       const instante = new Date(`${dia}T${hora}:00`).getTime();
-      const fimDoServico = atual + duracaoSelecionada;
+      const fimDoServico = atual + duracaoParaDisponibilidade;
       const sobrepoePausa = expediente.temPausa && intervalosSeSobrepoem(atual, fimDoServico, minutos(expediente.pausaInicio), minutos(expediente.pausaFim));
       const sobrepoeBloqueio = bloqueios.some((bloqueio) => bloqueio.data === dia && intervalosSeSobrepoem(atual, fimDoServico, bloqueio.diaInteiro ? 0 : minutos(bloqueio.inicio), bloqueio.diaInteiro ? 24 * 60 : minutos(bloqueio.fim)));
       const terminaNoExpediente = fimDoServico <= minutos(expediente.fechamento);
       if (!sobrepoePausa && !sobrepoeBloqueio && terminaNoExpediente && instante >= limiteMinimo) lista.push(hora);
     }
     return lista;
-  }, [configuracao, dia, agora, duracaoSelecionada, bloqueios]);
+  }, [configuracao, dia, agora, duracaoParaDisponibilidade, bloqueios]);
   const horariosOcupados = useMemo(
     () => {
       const intervaloPadrao = Number(configuracao?.configAgenda.intervalo ?? 30);
       const reservasDoDia = agendamentos.filter((item) => item.data === dia && reservaEstaAtiva(item, agora));
       return new Set(horarios.filter((hora) => {
         const inicioPretendido = minutos(hora);
-        const fimPretendido = inicioPretendido + duracaoSelecionada;
+        const fimPretendido = inicioPretendido + duracaoParaDisponibilidade;
         return reservasDoDia.some((reserva) => {
           const inicioReserva = minutos(reserva.hora);
           const fimReserva = inicioReserva + (reserva.duracaoMinutos ?? intervaloPadrao);
@@ -227,7 +228,7 @@ export default function PaginaCliente() {
         });
       }));
     },
-    [agendamentos, configuracao, dia, duracaoSelecionada, horarios, agora]
+    [agendamentos, configuracao, dia, duracaoParaDisponibilidade, horarios, agora]
   );
 
   function selecionarDia(novoDia: string) {
