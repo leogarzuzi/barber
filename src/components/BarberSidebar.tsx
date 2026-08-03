@@ -80,11 +80,21 @@ export default function BarberSidebar() {
           })}
         </nav>
 
-        <div className="mt-auto rounded-2xl border border-[#eee2c9]/10 bg-[#2c2824] p-4">
-          <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#a89d91]">Link público</p>
-          <p className="mt-2 font-mono text-sm text-[#e1c89f]">/b/ph10</p>
-          <Link href="/b/ph10" className="mt-4 inline-flex text-[10px] font-black uppercase tracking-[.14em] text-[#f3ead8]">Visualizar página →</Link>
-          <button type="button" onClick={sair} disabled={saindo} className="mt-4 block w-full border-t border-[#eee2c9]/10 pt-4 text-left text-[10px] font-black uppercase tracking-[.14em] text-[#a89d91] disabled:opacity-50">{saindo ? "Saindo..." : "Sair"}</button>
+        <div className="mt-auto space-y-3">
+          <Link
+            href="/b/ph10"
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setAberto(false)}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#eee2c9]/10 bg-[#2c2824] px-4 py-4 text-sm font-black text-[#f3ead8] transition hover:border-[#d8c29e]/35 hover:bg-[#342f2a]"
+          >
+            <span>Ver página do cliente</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 shrink-0 text-[#d8c29e]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 17 17 7" />
+              <path d="M7 7h10v10" />
+            </svg>
+          </Link>
+          <button type="button" onClick={sair} disabled={saindo} className="block w-full px-4 py-2 text-left text-[10px] font-black uppercase tracking-[.14em] text-[#a89d91] disabled:opacity-50">{saindo ? "Saindo..." : "Sair"}</button>
         </div>
       </aside>
     </>

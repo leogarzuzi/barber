@@ -86,8 +86,10 @@ export default function PaginaCliente() {
   const [codigoCopiado, setCodigoCopiado] = useState(false);
   const [reservaExistenteAviso, setReservaExistenteAviso] = useState<Agendamento | null>(null);
   const [avisoFormulario, setAvisoFormulario] = useState<{ titulo: string; mensagem: string; recarregar?: boolean } | null>(null);
+  const [processandoReserva, setProcessandoReserva] = useState(false);
   const dadosCarregadosRef = useRef(false);
   const carregandoDadosRef = useRef(false);
+  const processandoReservaRef = useRef(false);
 
   useEffect(() => {
     let ativo = true;
@@ -247,6 +249,8 @@ export default function PaginaCliente() {
   }
 
   async function agendar() {
+    if (processandoReservaRef.current) return;
+
     if (!servico || !dia || !horario || !nome.trim() || !whatsapp.trim()) {
       setAvisoFormulario({ titulo: "Faltam algumas informações", mensagem: "Escolha ao menos um serviço ou combo, o dia e o horário e preencha seus dados para continuar." });
       return;
@@ -262,16 +266,26 @@ export default function PaginaCliente() {
 
     const numeroCompletoCliente = `5521${whatsapp}`;
     const itens = itensSelecionados.map((item) => { const [tipo, id] = item.id.split(":"); return { tipo, id }; });
-    const resposta = await fetch("/api/public/reservas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: nome.trim(), whatsapp: numeroCompletoCliente, itens, data: dia, hora: horario }) });
-    const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
-    if (!resposta.ok || !resultado.reserva) {
-      setHorario("");
-      setAvisoFormulario({ titulo: "Não foi possível reservar", mensagem: resultado.erro ?? "A disponibilidade mudou. Escolha outro horário." });
-      return;
+    processandoReservaRef.current = true;
+    setProcessandoReserva(true);
+
+    try {
+      const resposta = await fetch("/api/public/reservas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: nome.trim(), whatsapp: numeroCompletoCliente, itens, data: dia, hora: horario }) });
+      const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
+      if (!resposta.ok || !resultado.reserva) {
+        setHorario("");
+        setAvisoFormulario({ titulo: "Não foi possível reservar", mensagem: resultado.erro ?? "A disponibilidade mudou. Escolha outro horário." });
+        return;
+      }
+      setAgendamentos((lista) => [...lista, resultado.reserva!]);
+      setReservaConcluida(resultado.reserva);
+      setCodigoCopiado(false);
+    } catch {
+      setAvisoFormulario({ titulo: "Não foi possível reservar", mensagem: "A conexão falhou durante a reserva. Confira sua internet e tente novamente." });
+    } finally {
+      processandoReservaRef.current = false;
+      setProcessandoReserva(false);
     }
-    setAgendamentos((lista) => [...lista, resultado.reserva!]);
-    setReservaConcluida(resultado.reserva);
-    setCodigoCopiado(false);
   }
 
   async function copiarCodigo() {
@@ -392,7 +406,7 @@ export default function PaginaCliente() {
               </div>
               <div className="mt-3 flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400"><span className="flex items-center border-r border-white/10 px-4 text-sm font-black text-amber-400">+55 21</span><input value={whatsapp} onChange={(e) => setWhatsapp(somenteDigitos(e.target.value))} placeholder="9 0000-0000" inputMode="numeric" autoComplete="tel" maxLength={9} className="min-w-0 flex-1 bg-transparent px-4 py-4 outline-none" /></div>
             </section>
-            <div className="sticky bottom-0 -mx-4 mt-6 bg-neutral-950/95 p-4 backdrop-blur lg:static lg:mx-0 lg:p-0"><button onClick={agendar} className="w-full rounded-2xl bg-amber-400 py-4 text-sm font-black text-neutral-950">Agendar horário</button>{servico && horario && <p className="mt-3 text-center text-xs text-neutral-400">{servico.nome} • {dinheiro(servico.valor)} • {horario}</p>}</div>
+            <div className="sticky bottom-0 -mx-4 mt-6 bg-neutral-950/95 p-4 backdrop-blur lg:static lg:mx-0 lg:p-0"><button onClick={agendar} disabled={processandoReserva} className="w-full rounded-2xl bg-amber-400 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-70">{processandoReserva ? "Processando..." : "Agendar horário"}</button>{servico && horario && <p className="mt-3 text-center text-xs text-neutral-400">{servico.nome} • {dinheiro(servico.valor)} • {horario}</p>}</div>
           </>
         )}
       </div>
@@ -424,6 +438,16 @@ export default function PaginaCliente() {
             <h2 id="aviso-formulario-titulo" className="mt-4 text-2xl font-black">{avisoFormulario.titulo}</h2>
             <p className="mt-2 text-sm leading-relaxed text-neutral-400">{avisoFormulario.mensagem}</p>
             <button type="button" onClick={fecharAvisoFormulario} className="mt-6 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">{avisoFormulario.recarregar ? "Tentar novamente" : "Entendi"}</button>
+          </div>
+        </div>
+      )}
+
+      {processandoReserva && (
+        <div className="safe-modal-shell fixed inset-0 z-[400] flex items-center justify-center bg-black/70 backdrop-blur-md" role="status" aria-live="assertive" aria-label="Processando sua reserva">
+          <div className="flex w-full max-w-xs flex-col items-center rounded-[2rem] border border-white/10 bg-neutral-900/95 px-6 py-8 text-center text-white shadow-2xl">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-400/20 border-t-amber-400" aria-hidden="true" />
+            <p className="mt-5 text-xl font-black">Processando...</p>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Estamos confirmando seu horário. Aguarde um instante.</p>
           </div>
         </div>
       )}
