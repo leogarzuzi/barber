@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import NoticeDialog from "@/components/NoticeDialog";
 import {
@@ -43,7 +43,9 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const [novoHorario, setNovoHorario] = useState("");
   const [confirmacao, setConfirmacao] = useState<"cancelar" | "remarcar" | null>(null);
   const [avisoSucesso, setAvisoSucesso] = useState<{ titulo: string; descricao: string } | null>(null);
+  const [consultando, setConsultando] = useState(false);
   const [relogio, setRelogio] = useState(() => Date.now());
+  const consultandoRef = useRef(false);
 
   useEffect(() => {
     const intervalo = window.setInterval(() => setRelogio(Date.now()), 60_000);
@@ -91,6 +93,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   }, [reserva, configuracao, novaData, relogio, bloqueios, agendamentos]);
 
   function fechar() {
+    if (consultandoRef.current) return;
     setAberto(false);
     setCodigo("");
     setWhatsapp("");
@@ -103,20 +106,33 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   }
 
   async function buscarReserva() {
+    if (consultandoRef.current) return;
+
     const codigoNormalizado = codigoComparavel(codigo);
     if (codigoNormalizado.length < 10 || !/^9\d{8}$/.test(whatsapp)) {
       setErro("Informe o código completo e os 9 dígitos do WhatsApp.");
       return;
     }
     const numero = normalizarWhatsapp(`5521${whatsapp}`);
-    const resposta = await fetch(`/api/public/reservas?codigo=${encodeURIComponent(codigo.toUpperCase())}&whatsapp=${numero}`, { cache: "no-store" });
-    const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
-    if (!resposta.ok || !resultado.reserva) {
-      setErro(resultado.erro ?? "Não encontramos uma reserva com esses dados.");
-      return;
-    }
-    setReserva(resultado.reserva);
+    consultandoRef.current = true;
+    setConsultando(true);
     setErro("");
+
+    try {
+      const resposta = await fetch(`/api/public/reservas?codigo=${encodeURIComponent(codigo.toUpperCase())}&whatsapp=${numero}`, { cache: "no-store" });
+      const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
+      if (!resposta.ok || !resultado.reserva) {
+        setErro(resultado.erro ?? "Não encontramos uma reserva com esses dados.");
+        return;
+      }
+      setReserva(resultado.reserva);
+      setErro("");
+    } catch {
+      setErro("A conexão falhou durante a consulta. Confira sua internet e tente novamente.");
+    } finally {
+      consultandoRef.current = false;
+      setConsultando(false);
+    }
   }
 
   async function executarConfirmacao() {
@@ -167,7 +183,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
             <label className="mt-4 block"><span className="text-xs font-bold text-neutral-400">Código da reserva</span><input value={codigo} onChange={(event) => setCodigo(event.target.value.toUpperCase().slice(0, 11))} placeholder="PH10-XXXXXX" autoCapitalize="characters" spellCheck={false} className="mt-2 w-full rounded-2xl bg-neutral-950 px-4 py-4 font-mono text-base uppercase outline-none focus:ring-2 focus:ring-amber-400" /></label>
             <label className="mt-3 block"><span className="text-xs font-bold text-neutral-400">WhatsApp</span><div className="mt-2 flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400"><span className="flex items-center border-r border-white/10 px-4 text-sm font-black text-amber-400">+55 21</span><input value={whatsapp} onChange={(event) => setWhatsapp(somenteDigitos(event.target.value))} placeholder="9 0000-0000" inputMode="numeric" maxLength={9} className="min-w-0 flex-1 bg-transparent px-4 py-4 text-sm outline-none" /></div></label>
             {erro && <p className="mt-3 rounded-2xl bg-red-500/10 p-3 text-sm text-red-200">{erro}</p>}
-            <button type="button" onClick={buscarReserva} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Consultar reserva</button>
+            <button type="button" onClick={buscarReserva} disabled={consultando} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-70">{consultando ? "Consultando..." : "Consultar reserva"}</button>
           </div>
         ) : (
           <div className="mt-5">
@@ -197,6 +213,16 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
       {confirmacao && reserva && (
         <div onClick={() => setConfirmacao(null)} className="fixed inset-0 z-[340] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center text-white shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-400/10 text-2xl font-black text-amber-400">!</div><h2 className="mt-4 text-2xl font-black">{confirmacao === "cancelar" ? "Cancelar reserva?" : "Confirmar remarcação?"}</h2><p className="mt-2 text-sm leading-relaxed text-neutral-400">{confirmacao === "cancelar" ? `O horário de ${formatarData(reserva.data)} às ${reserva.hora} será liberado.` : `Sua reserva será alterada para ${formatarData(novaData)} às ${novoHorario}.`}</p><div className="mt-6 grid grid-cols-2 gap-3"><button type="button" onClick={() => setConfirmacao(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black">Voltar</button><button type="button" onClick={executarConfirmacao} className={`rounded-2xl px-4 py-4 text-sm font-black ${confirmacao === "cancelar" ? "bg-red-500 text-white" : "bg-amber-400 text-neutral-950"}`}>Confirmar</button></div></div>
+        </div>
+      )}
+
+      {consultando && (
+        <div onClick={(event) => event.stopPropagation()} className="safe-modal-shell fixed inset-0 z-[360] flex items-center justify-center bg-black/70 backdrop-blur-md" role="status" aria-live="assertive" aria-label="Consultando sua reserva">
+          <div className="flex w-full max-w-xs flex-col items-center rounded-[2rem] border border-white/10 bg-neutral-900/95 px-6 py-8 text-center text-white shadow-2xl">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-400/20 border-t-amber-400" aria-hidden="true" />
+            <p className="mt-5 text-xl font-black">Consultando...</p>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Estamos procurando sua reserva. Aguarde um instante.</p>
+          </div>
         </div>
       )}
     </div>
