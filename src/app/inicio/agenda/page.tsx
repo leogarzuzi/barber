@@ -142,7 +142,7 @@ function statusClass(status: Status) {
 
 function whatsappLink(item: Agendamento) {
   const msg = encodeURIComponent(
-    `Fala, ${item.cliente}! Passando pra confirmar seu horário na PH10: dia ${item.data.split("-").reverse().join("/")} às ${item.hora}.\n\nServiço: ${item.servico}\n\nTe espero, TMJ!`
+    `Olá, ${item.cliente}! Tudo bem? Estou passando para confirmar seu horário na PH10 no dia ${item.data.split("-").reverse().join("/")} às ${item.hora}.\n\nServiço: ${item.servico}\n\nAté lá!`
   );
 
   const numero = item.whatsapp.replace(/\D/g, "");
@@ -272,7 +272,11 @@ export default function AgendaPage() {
 
   const reservasAtivasDoDia = agendamentosDoDia.filter((item) => reservaEstaAtiva(item, agoraRemarcacao));
   const reservasEncerradasDoDia = agendamentosDoDia.filter((item) => !reservaEstaAtiva(item, agoraRemarcacao));
-  const totalReservasHoje = agendamentos.filter((item) => item.data === dataLocal()).length;
+  const totalReservasHoje = agendamentos
+    .filter((item) => item.data === dataLocal())
+    .map((item) => ({ ...item, status: obterStatusAtendimento(item, agoraRemarcacao) }))
+    .filter((item) => item.status !== "Cancelado" && item.status !== "Não compareceu")
+    .length;
 
   function atualizarDiaFuncionamento(
     id: string,
@@ -377,7 +381,7 @@ export default function AgendaPage() {
   function perguntarSobreRemarcacao() {
     if (!agendamentoRemarcar) return;
     const dataAtual = agendamentoRemarcar.data.split("-").reverse().join("/");
-    const mensagem = encodeURIComponent(`Fala, ${agendamentoRemarcar.cliente}! Tudo bem? Vou precisar ajustar seu horário na PH10, que tá marcado pro dia ${dataAtual} às ${agendamentoRemarcar.hora}. Qual dia e horário ficam melhores pra você? Me manda umas opções que eu confiro aqui, pode ser?`);
+    const mensagem = encodeURIComponent(`Olá, ${agendamentoRemarcar.cliente}! Tudo bem? Vou precisar ajustar seu horário na PH10, marcado para o dia ${dataAtual} às ${agendamentoRemarcar.hora}. Qual dia e horário seriam melhores para você? Pode me enviar algumas opções para eu conferir a disponibilidade?`);
     const numero = agendamentoRemarcar.whatsapp.replace(/\D/g, "");
     const numeroCompleto = numero.startsWith("55") ? numero : `55${numero}`;
     window.open(`https://wa.me/${numeroCompleto}?text=${mensagem}`, "_blank", "noopener,noreferrer");
@@ -448,8 +452,9 @@ export default function AgendaPage() {
               const lista = agendamentos
                 .filter((a) => a.data === dia.data)
                 .map((a) => ({ ...a, status: obterStatusAtendimento(a, agoraRemarcacao) }));
-              const previsto = lista
-                .filter((a) => a.status !== "Cancelado" && a.status !== "Não compareceu")
+              const reservasContabilizadas = lista
+                .filter((a) => a.status !== "Cancelado" && a.status !== "Não compareceu");
+              const previsto = reservasContabilizadas
                 .reduce((total, a) => total + a.valor, 0);
 
               const ativo = dia.data === diaSelecionado;
@@ -468,7 +473,7 @@ export default function AgendaPage() {
                   <span className="text-[11px] font-bold">{dia.semana}</span>
                   <strong className="block text-2xl leading-tight">{dia.dia}</strong>
                   <p className="mt-1 text-[10px] leading-tight opacity-70">
-                    {lista.length} reserva(s)
+                    {reservasContabilizadas.length} reserva(s)
                   </p>
                   <p className="mt-1 text-[10px] font-black">
                     {dinheiro(previsto)}

@@ -164,7 +164,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   function linkContatoPrazo() {
     if (!reserva) return "#";
     const mensagem = encodeURIComponent(
-      `Fala comigo, PH! Preciso trocar minha reserva do dia ${formatarData(reserva.data)} às ${reserva.hora}, mas o prazo pelo site já encerrou. Consegue me ajudar?\n\nCódigo: ${reserva.codigo}`,
+      `Olá, PH! Preciso alterar minha reserva do dia ${formatarData(reserva.data)} às ${reserva.hora}, mas o prazo pelo site já encerrou. Pode me ajudar?\n\nCódigo: ${reserva.codigo}`,
     );
     return `https://wa.me/${whatsappPH10}?text=${mensagem}`;
   }

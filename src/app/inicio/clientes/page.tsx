@@ -85,7 +85,7 @@ export default function ClientesPage() {
   }, [agendamentos, clienteHistorico]);
 
   function abrirWhatsapp(cliente: Cliente) {
-    const mensagem = encodeURIComponent(`Fala, ${cliente.nome}! Tudo bem? Quer marcar um horário na PH10 essa semana?`);
+    const mensagem = encodeURIComponent(`Olá, ${cliente.nome}! Tudo bem? Gostaria de agendar um horário na PH10 esta semana?`);
     return `https://wa.me/${normalizarWhatsapp(cliente.whatsapp)}?text=${mensagem}`;
   }
 

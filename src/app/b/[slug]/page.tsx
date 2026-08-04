@@ -297,7 +297,7 @@ export default function PaginaCliente() {
 
   function linkConfirmacaoWhatsapp(reserva: Agendamento) {
     const mensagem = encodeURIComponent(
-      `Fala comigo, PH! Tô marcado pro dia ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora}. Segue as informações, TMJ!\n\n` +
+      `Olá, PH! Fiz uma reserva para o dia ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora}. Seguem as informações:\n\n` +
       `Nome: ${reserva.cliente}\n` +
       `Serviço: ${reserva.servico}\n` +
       `Código: ${reserva.codigo}`
@@ -307,7 +307,7 @@ export default function PaginaCliente() {
 
   function linkPedidoRemarcacao(reserva: Agendamento) {
     const mensagem = encodeURIComponent(
-      `Fala comigo, PH! Já tô marcado pro dia ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora}, mas preciso trocar esse horário. Pode me ajudar?${reserva.codigo ? `\n\nCódigo: ${reserva.codigo}` : ""}`
+      `Olá, PH! Tenho uma reserva para o dia ${reserva.data.split("-").reverse().join("/")} às ${reserva.hora}, mas preciso alterar esse horário. Pode me ajudar?${reserva.codigo ? `\n\nCódigo: ${reserva.codigo}` : ""}`
     );
     return `https://wa.me/${whatsappPH10}?text=${mensagem}`;
   }
@@ -388,10 +388,10 @@ export default function PaginaCliente() {
           </section>
         ) : (
           <>
-            <section className="mt-3"><h2 className="text-xl font-black">Serviços</h2>
+            {combos.length > 0 && <section className="mt-3"><div><p className="text-xs font-black uppercase tracking-[.2em] text-amber-400">Economize</p><h2 className="mt-1 text-xl font-black">Combos</h2></div><div className="mt-3 grid gap-3 lg:grid-cols-2">{combos.map((combo) => { const idSelecao = `combo:${combo.id}`; return <button key={combo.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-amber-400/20 bg-amber-400/5"}`}><div className="flex justify-between gap-3"><div><p className="font-black">{combo.nome}</p><p className="text-sm opacity-70">{duracaoComUnidade(combo.duracao)}</p></div><strong>{dinheiro(combo.valor)}</strong></div><p className="mt-3 text-xs font-bold opacity-70">Combo especial</p></button>; })}</div></section>}
+            <section className={`${combos.length > 0 ? "mt-6 border-t border-white/10 pt-6" : "mt-3"}`}><h2 className="text-xl font-black">Serviços</h2>
               {servicos.length === 0 ? <div className="mt-3 rounded-3xl border border-dashed border-white/10 bg-neutral-900 p-5 text-center text-sm text-neutral-400">Nenhum serviço disponível no momento.</div> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{servicos.map((item) => { const idSelecao = `servico:${item.id}`; return <button key={item.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><div className="flex justify-between gap-3"><div><p className="font-black">{item.nome}</p><p className="text-sm opacity-70">{duracaoComUnidade(item.duracao)}</p></div><strong>{dinheiro(item.valor)}</strong></div></button>; })}</div>}
             </section>
-            {combos.length > 0 && <section className="mt-6 border-t border-white/10 pt-6"><div><p className="text-xs font-black uppercase tracking-[.2em] text-amber-400">Economize</p><h2 className="mt-1 text-xl font-black">Combos</h2></div><div className="mt-3 grid gap-3 lg:grid-cols-2">{combos.map((combo) => { const idSelecao = `combo:${combo.id}`; return <button key={combo.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-amber-400/20 bg-amber-400/5"}`}><div className="flex justify-between gap-3"><div><p className="font-black">{combo.nome}</p><p className="text-sm opacity-70">{duracaoComUnidade(combo.duracao)}</p></div><strong>{dinheiro(combo.valor)}</strong></div><p className="mt-3 text-xs font-bold opacity-70">Combo especial</p></button>; })}</div></section>}
             <section className="mt-6"><h2 className="text-xl font-black">Dia</h2>
               <div className="-mx-4 mt-3 flex gap-3 overflow-x-auto px-4 pb-2 lg:mx-0 lg:px-0">{dias.map((item) => <button key={item.data} onClick={() => selecionarDia(item.data)} className={`min-w-16 rounded-3xl border p-3 text-center ${item.data === dia ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><span className="block text-xs font-bold capitalize">{item.semana}</span><strong className="block text-2xl">{item.dia}</strong></button>)}</div>
             </section>
