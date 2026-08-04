@@ -13,6 +13,11 @@ export async function autenticarDono() {
     .eq("id", 1)
     .maybeSingle();
 
-  if (!configuracao || configuracao.owner_id !== user.id) return null;
-  return user;
+  // A própria RLS só permite que membros ativos do painel vejam esta linha.
+  if (!configuracao) return null;
+  return {
+    usuario: user,
+    ownerId: configuracao.owner_id,
+    proprietario: configuracao.owner_id === user.id,
+  };
 }

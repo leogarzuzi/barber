@@ -80,7 +80,9 @@ export async function GET(request: NextRequest) {
       .from("google_calendar_conexoes")
       .upsert({
         id: 1,
-        owner_id: dono.id,
+        // A integração pertence à barbearia/Pedro, mesmo quando um
+        // administrador técnico conclui a configuração.
+        owner_id: dono.ownerId,
         google_email: email,
         calendar_id: calendario.id,
         calendar_nome: calendario.nome,

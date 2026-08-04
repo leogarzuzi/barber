@@ -1,7 +1,9 @@
 "use client";
 
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import NextImage from "next/image";
+import { useRouter } from "next/navigation";
+import NoticeDialog from "@/components/NoticeDialog";
 import {
   PerfilBarbearia,
   normalizarWhatsapp,
@@ -40,12 +42,21 @@ function reduzirFoto(arquivo: File) {
 }
 
 export default function PerfilPage() {
+  const router = useRouter();
   const [perfil, setPerfil] = useState<PerfilBarbearia>(perfilInicial);
   const [salvo, setSalvo] = useState(false);
   const [erro, setErro] = useState("");
   const [processandoFoto, setProcessandoFoto] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [modalSenhaAberto, setModalSenhaAberto] = useState(false);
+  const [senhaAtual, setSenhaAtual] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmacaoSenha, setConfirmacaoSenha] = useState("");
+  const [alterandoSenha, setAlterandoSenha] = useState(false);
+  const [erroSenha, setErroSenha] = useState("");
+  const [senhaAlterada, setSenhaAlterada] = useState(false);
+  const [saindo, setSaindo] = useState(false);
 
   useEffect(() => {
     let ativo = true;
@@ -147,6 +158,80 @@ export default function PerfilPage() {
     }
   }
 
+  function fecharModalSenha() {
+    if (alterandoSenha) return;
+    setModalSenhaAberto(false);
+    setSenhaAtual("");
+    setNovaSenha("");
+    setConfirmacaoSenha("");
+    setErroSenha("");
+  }
+
+  async function alterarSenha(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!senhaAtual || !novaSenha || !confirmacaoSenha) {
+      setErroSenha("Preencha os três campos para continuar.");
+      return;
+    }
+    if (novaSenha.length < 8) {
+      setErroSenha("A nova senha precisa ter pelo menos 8 caracteres.");
+      return;
+    }
+    if (novaSenha !== confirmacaoSenha) {
+      setErroSenha("A confirmação não corresponde à nova senha.");
+      return;
+    }
+    if (senhaAtual === novaSenha) {
+      setErroSenha("Escolha uma senha diferente da senha atual.");
+      return;
+    }
+
+    try {
+      setAlterandoSenha(true);
+      setErroSenha("");
+      const supabase = criarClienteSupabase();
+      const { data: usuarioAtual, error: erroUsuario } = await supabase.auth.getUser();
+      const email = usuarioAtual.user?.email;
+
+      if (erroUsuario || !email) throw new Error("Sessão inválida.");
+
+      const { error: erroConfirmacao } = await supabase.auth.signInWithPassword({
+        email,
+        password: senhaAtual,
+      });
+      if (erroConfirmacao) {
+        setErroSenha("A senha atual está incorreta.");
+        return;
+      }
+
+      const { error: erroAtualizacao } = await supabase.auth.updateUser({
+        password: novaSenha,
+      });
+      if (erroAtualizacao) throw erroAtualizacao;
+
+      setModalSenhaAberto(false);
+      setSenhaAtual("");
+      setNovaSenha("");
+      setConfirmacaoSenha("");
+      setSenhaAlterada(true);
+    } catch {
+      setErroSenha("Não foi possível alterar a senha. Confira sua conexão e tente novamente.");
+    } finally {
+      setAlterandoSenha(false);
+    }
+  }
+
+  async function concluirTrocaDeSenha() {
+    if (saindo) return;
+    setSaindo(true);
+    const supabase = criarClienteSupabase();
+    const { error } = await supabase.auth.signOut({ scope: "global" });
+    if (error) await supabase.auth.signOut({ scope: "local" });
+    router.replace("/login");
+    router.refresh();
+  }
+
   return (
     <main className="app-page">
       <div className="page-wrap">
@@ -183,11 +268,59 @@ export default function PerfilPage() {
 
             <button type="button" onClick={salvar} disabled={carregando || salvando || processandoFoto} className="mt-6 w-full rounded-2xl bg-[#e7d7b8] px-5 py-4 text-sm font-black text-[#24211e] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">{carregando ? "Carregando..." : salvando ? "Salvando..." : "Salvar perfil"}</button>
           </section>
+
+          <section className="panel mt-5 p-5 lg:p-7">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#d8c29e]">Segurança</p>
+                <h2 className="mt-2 text-xl font-black">Senha de acesso</h2>
+              </div>
+              <button type="button" onClick={() => setModalSenhaAberto(true)} className="w-full rounded-2xl border border-[#d8c29e]/25 bg-white/5 px-5 py-4 text-sm font-black text-[#e7d7b8] sm:w-auto">
+                Alterar senha
+              </button>
+            </div>
+          </section>
         </div>
       </div>
 
+      {modalSenhaAberto && (
+        <div onClick={fecharModalSenha} className="safe-modal-shell fixed inset-0 z-[350] flex items-center justify-center bg-black/75 backdrop-blur-sm">
+          <form onSubmit={alterarSenha} onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#d8c29e]">Segurança</p>
+                <h2 className="mt-2 text-2xl font-black">Alterar senha</h2>
+              </div>
+              <button type="button" onClick={fecharModalSenha} disabled={alterandoSenha} aria-label="Fechar" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-xl text-neutral-300 disabled:opacity-50">×</button>
+            </div>
+
+            <div className="mt-6 grid gap-4">
+              <label className="block">
+                <span className="text-xs font-bold text-neutral-400">Senha atual</span>
+                <input type="password" value={senhaAtual} onChange={(event) => setSenhaAtual(event.target.value)} autoComplete="current-password" required className="mt-2 w-full rounded-2xl border border-white/10 bg-[#191715] px-4 py-4 outline-none focus:border-[#d8c29e]/50 focus:ring-2 focus:ring-[#d8c29e]/20" />
+              </label>
+              <label className="block">
+                <span className="text-xs font-bold text-neutral-400">Nova senha</span>
+                <input type="password" value={novaSenha} onChange={(event) => setNovaSenha(event.target.value)} autoComplete="new-password" minLength={8} required className="mt-2 w-full rounded-2xl border border-white/10 bg-[#191715] px-4 py-4 outline-none focus:border-[#d8c29e]/50 focus:ring-2 focus:ring-[#d8c29e]/20" />
+              </label>
+              <label className="block">
+                <span className="text-xs font-bold text-neutral-400">Confirmar nova senha</span>
+                <input type="password" value={confirmacaoSenha} onChange={(event) => setConfirmacaoSenha(event.target.value)} autoComplete="new-password" minLength={8} required className="mt-2 w-full rounded-2xl border border-white/10 bg-[#191715] px-4 py-4 outline-none focus:border-[#d8c29e]/50 focus:ring-2 focus:ring-[#d8c29e]/20" />
+              </label>
+            </div>
+
+            {erroSenha && <p role="alert" className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-200">{erroSenha}</p>}
+
+            <button type="submit" disabled={alterandoSenha} className="mt-6 w-full rounded-2xl bg-[#e7d7b8] px-4 py-4 text-sm font-black text-[#24211e] disabled:cursor-not-allowed disabled:opacity-50">
+              {alterandoSenha ? "Alterando..." : "Salvar nova senha"}
+            </button>
+          </form>
+        </div>
+      )}
+
       {erro && <div onClick={() => setErro("")} className="safe-modal-shell fixed inset-0 z-[300] flex items-center justify-center bg-black/75 backdrop-blur-sm"><div onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-400/10 text-2xl font-black text-amber-400">!</div><h2 className="mt-4 text-2xl font-black">Confira os dados</h2><p className="mt-2 text-sm leading-relaxed text-neutral-400">{erro}</p><button type="button" onClick={() => setErro("")} className="mt-6 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Entendi</button></div></div>}
       {salvo && <div onClick={() => setSalvo(false)} className="safe-modal-shell fixed inset-0 z-[300] flex items-center justify-center bg-black/75 backdrop-blur-sm"><div onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-green-400/30 bg-green-400/10 text-green-300"><svg viewBox="0 0 24 24" aria-hidden="true" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4L19 6" /></svg></div><h2 className="mt-4 text-2xl font-black">Perfil salvo</h2><p className="mt-2 text-sm leading-relaxed text-neutral-400">As informações já foram atualizadas na página do cliente.</p><button type="button" onClick={() => setSalvo(false)} className="mt-6 w-full rounded-2xl bg-[#e7d7b8] px-4 py-4 text-sm font-black text-[#24211e]">Concluir</button></div></div>}
+      {senhaAlterada && <NoticeDialog titulo="Senha alterada" descricao="Sua nova senha já está ativa. Por segurança, você será direcionado ao login novamente." botaoTexto={saindo ? "Saindo..." : "Entrar novamente"} tipo="sucesso" onFechar={concluirTrocaDeSenha} />}
     </main>
   );
 }
