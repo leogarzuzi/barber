@@ -201,7 +201,7 @@ export default function PaginaCliente() {
     const expediente = configuracao.diasFuncionamento.find((item) => item.id === idsDosDias[dataSelecionada.getDay()]);
     if (!expediente?.ativo) return [];
     const intervalo = Number(configuracao.configAgenda.intervalo);
-    const limiteMinimo = agora + Number(configuracao.configAgenda.antecedenciaMinima) * 60 * 60 * 1000;
+    const limiteMinimo = agora + Number(configuracao.configAgenda.antecedenciaMinima) * 60 * 1000;
     const lista: string[] = [];
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {
       const hora = horaFormatada(atual);

@@ -11,13 +11,15 @@
   --paper: #f5eddf;
   --copper: #b77a42;
   --muted: #aa9f90;
+  --font-system-sans: Arial, Helvetica, sans-serif;
+  --font-system-mono: "Courier New", Courier, monospace;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-system-sans);
+  --font-mono: var(--font-system-mono);
 }
 
 * { box-sizing: border-box; }
@@ -38,7 +40,7 @@ body {
     radial-gradient(circle at 90% 0%, rgba(216, 194, 158, .09), transparent 28rem),
     var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-system-sans);
 }
 
 button, a { -webkit-tap-highlight-color: transparent; }

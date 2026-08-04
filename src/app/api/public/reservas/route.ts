@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     const dia = config.diasFuncionamento.find((x) => x.id === idsDias[new Date(`${corpo.data}T12:00:00`).getDay()]);
     const inicio = minutos(corpo.hora); const fim = inicio + Number(item.duracao);
     const instante = new Date(`${corpo.data}T${corpo.hora}:00-03:00`).getTime();
-    const antecedencia = Number(config.configAgenda.antecedenciaMinima) * 3600000;
+    const antecedencia = Number(config.configAgenda.antecedenciaMinima) * 60000;
     const limiteJanela = Date.now() + Number(config.configAgenda.diasParaAgendar) * 86400000;
     const invalido = instante < Date.now() + antecedencia || instante > limiteJanela || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === corpo.data && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => !r.statusManual && r.data === corpo.data && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? 30)));
     if (invalido) return NextResponse.json({ erro: "Horário indisponível." }, { status: 409 });

@@ -10,6 +10,19 @@ export function intervalosSeSobrepoem(inicioA, fimA, inicioB, fimB) {
   return inicioA < fimB && fimA > inicioB;
 }
 
+const antecedenciasPermitidas = [15, 30, 45, 60, 120, 180];
+
+/**
+ * Mantém a antecedência em uma das opções oferecidas no painel. Valores antigos
+ * acima de 3 horas são limitados a 3 horas.
+ * @param {number | string} valor
+ */
+export function normalizarAntecedenciaMinutos(valor) {
+  const minutos = Number(valor);
+  if (!Number.isFinite(minutos)) return 60;
+  return antecedenciasPermitidas.find((opcao) => minutos <= opcao) ?? 180;
+}
+
 /** @param {string} hora */
 function minutos(hora) {
   const [horas, minutosHora] = hora.split(":").map(Number);

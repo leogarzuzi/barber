@@ -28,7 +28,7 @@ type DiaFuncionamento = {
 
 type ConfigAgenda = {
   intervalo: "15" | "30" | "45" | "60";
-  antecedenciaMinima: "1" | "2" | "4" | "24";
+  antecedenciaMinima: string;
   diasParaAgendar: "7" | "15" | "30";
 };
 
@@ -122,9 +122,22 @@ const diasFuncionamentoIniciais: DiaFuncionamento[] = [
 
 const configAgendaInicial: ConfigAgenda = {
   intervalo: "30",
-  antecedenciaMinima: "2",
+  antecedenciaMinima: "120",
   diasParaAgendar: "15",
 };
+
+const opcoesAntecedencia = [
+  { valor: "15", rotulo: "15 minutos antes" },
+  { valor: "30", rotulo: "30 minutos antes" },
+  { valor: "45", rotulo: "45 minutos antes" },
+  ...Array.from({ length: 3 }, (_, indice) => {
+    const horas = indice + 1;
+    return {
+      valor: String(horas * 60),
+      rotulo: horas === 1 ? "1 hora antes" : `${horas} horas antes`,
+    };
+  }),
+];
 
 function dinheiro(valor: number) {
   return valor.toLocaleString("pt-BR", {
@@ -251,7 +264,7 @@ export default function AgendaPage() {
     if (!expediente?.ativo) return [];
     const intervalo = Number(configAgenda.intervalo);
     const duracao = agendamentoRemarcar.duracaoMinutos ?? intervalo;
-    const limiteMinimo = agoraRemarcacao + Number(configAgenda.antecedenciaMinima) * 60 * 60 * 1000;
+    const limiteMinimo = agoraRemarcacao + Number(configAgenda.antecedenciaMinima) * 60 * 1000;
     const disponiveis: string[] = [];
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {
       const hora = `${String(Math.floor(atual / 60)).padStart(2, "0")}:${String(atual % 60).padStart(2, "0")}`;
@@ -626,10 +639,9 @@ export default function AgendaPage() {
                     }
                     className="mt-2 w-full rounded-2xl bg-neutral-900 px-4 py-4 text-sm outline-none focus:ring-2 focus:ring-amber-400"
                   >
-                    <option value="1">1 hora antes</option>
-                    <option value="2">2 horas antes</option>
-                    <option value="4">4 horas antes</option>
-                    <option value="24">1 dia antes</option>
+                    {opcoesAntecedencia.map((opcao) => (
+                      <option key={opcao.valor} value={opcao.valor}>{opcao.rotulo}</option>
+                    ))}
                   </select>
                 </label>
 

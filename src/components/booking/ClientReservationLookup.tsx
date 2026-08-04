@@ -71,8 +71,8 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     if (!expediente?.ativo) return [];
     const intervalo = Number(configuracao.configAgenda.intervalo);
     const duracao = reserva.duracaoMinutos ?? intervalo;
-    const horasMinimas = Math.max(2, Number(configuracao.configAgenda.antecedenciaMinima));
-    const limiteMinimo = relogio + horasMinimas * 60 * 60 * 1000;
+    const minutosMinimos = Math.max(120, Number(configuracao.configAgenda.antecedenciaMinima));
+    const limiteMinimo = relogio + minutosMinimos * 60 * 1000;
     const disponiveis: string[] = [];
 
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {

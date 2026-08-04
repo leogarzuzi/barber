@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ConfiguracaoAgenda, DiaFuncionamento, PerfilBarbearia } from "@/lib/barber-storage";
+import { normalizarAntecedenciaMinutos } from "@/lib/agenda-rules.mjs";
 
 export const camposConfiguracao = "nome, subtitulo, responsavel, whatsapp, endereco, foto_url, intervalo_minutos, antecedencia_minutos, dias_para_agendar, dias_funcionamento";
 
@@ -32,7 +33,7 @@ export function agendaDoBanco(configuracao: ConfiguracaoBanco): ConfiguracaoAgen
     diasFuncionamento: configuracao.dias_funcionamento,
     configAgenda: {
       intervalo: String(configuracao.intervalo_minutos) as ConfiguracaoAgenda["configAgenda"]["intervalo"],
-      antecedenciaMinima: String(configuracao.antecedencia_minutos / 60) as ConfiguracaoAgenda["configAgenda"]["antecedenciaMinima"],
+      antecedenciaMinima: String(normalizarAntecedenciaMinutos(configuracao.antecedencia_minutos)),
       diasParaAgendar: String(configuracao.dias_para_agendar) as ConfiguracaoAgenda["configAgenda"]["diasParaAgendar"],
     },
   };
@@ -55,7 +56,7 @@ export async function atualizarAgendaSupabase(supabase: SupabaseClient, configur
     .update({
       dias_funcionamento: configuracao.diasFuncionamento,
       intervalo_minutos: Number(configuracao.configAgenda.intervalo),
-      antecedencia_minutos: Number(configuracao.configAgenda.antecedenciaMinima) * 60,
+      antecedencia_minutos: Number(configuracao.configAgenda.antecedenciaMinima),
       dias_para_agendar: Number(configuracao.configAgenda.diasParaAgendar),
     })
     .eq("id", 1);
