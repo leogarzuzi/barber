@@ -263,12 +263,11 @@ export default function AgendaPage() {
     const expediente = diasFuncionamento.find((item) => item.id === idsDosDias[dataEscolhida.getDay()]);
     if (!expediente?.ativo) return [];
     const intervalo = Number(configAgenda.intervalo);
-    const duracao = agendamentoRemarcar.duracaoMinutos ?? intervalo;
     const limiteMinimo = agoraRemarcacao + Number(configAgenda.antecedenciaMinima) * 60 * 1000;
     const disponiveis: string[] = [];
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {
       const hora = `${String(Math.floor(atual / 60)).padStart(2, "0")}:${String(atual % 60).padStart(2, "0")}`;
-      const fim = atual + duracao;
+      const fim = atual + intervalo;
       const instante = new Date(`${novaData}T${hora}:00`).getTime();
       const sobrepoePausa = expediente.temPausa && intervalosSeSobrepoem(atual, fim, minutos(expediente.pausaInicio), minutos(expediente.pausaFim));
       const sobrepoeBloqueio = bloqueios.some((item) => item.data === novaData && intervalosSeSobrepoem(atual, fim, item.diaInteiro ? 0 : minutos(item.inicio), item.diaInteiro ? 24 * 60 : minutos(item.fim)));
@@ -406,7 +405,7 @@ export default function AgendaPage() {
     const novaLista = agendamentos.map((item) => {
       if (item.id !== anterior.id) return item;
       const atualizado = registrarAlteracaoAgendamento(
-        { ...item, data: novaData, hora: novoHorario },
+        { ...item, data: novaData, hora: novoHorario, duracaoMinutos: Number(configAgenda.intervalo) },
         { tipo: "Remarcada", origem: "Dono", dataAnterior: item.data, horaAnterior: item.hora, dataNova: novaData, horaNova: novoHorario }
       );
       return { ...atualizado, status: obterStatusAtendimento(atualizado, agoraRemarcacao) };

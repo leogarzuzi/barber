@@ -24,10 +24,6 @@ function horaFormatada(total: number) { return `${String(Math.floor(total / 60))
 function dinheiro(valor: number) {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
-function duracaoComUnidade(valor: string) {
-  const numero = valor.replace(/\D/g, "");
-  return numero ? `${numero} min` : valor;
-}
 function somenteLetras(valor: string) {
   return valor.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, "").replace(/\s{2,}/g, " ");
 }
@@ -174,19 +170,17 @@ export default function PaginaCliente() {
 
   const opcoesAgendamento: Servico[] = [
     ...servicos.map((item) => ({ ...item, id: `servico:${item.id}` })),
-    ...combos.map((combo) => ({ id: `combo:${combo.id}`, nome: combo.nome, duracao: combo.duracao, valor: combo.valor, status: "Ativo" as const })),
+    ...combos.map((combo) => ({ id: `combo:${combo.id}`, nome: combo.nome, valor: combo.valor, status: "Ativo" as const })),
   ];
   const itensSelecionados = opcoesAgendamento.filter((item) => selecoes.includes(item.id));
   const servico = itensSelecionados.length > 0 ? {
     id: itensSelecionados.map((item) => item.id).join(","),
     nome: itensSelecionados.map((item) => item.nome).join(" + "),
-    duracao: String(itensSelecionados.reduce((total, item) => total + Number(item.duracao), 0)),
     valor: itensSelecionados.reduce((total, item) => total + item.valor, 0),
     status: "Ativo" as const,
   } : undefined;
   const whatsappPH10 = perfil.whatsapp;
-  const duracaoSelecionada = Number(servico?.duracao.replace(/\D/g, "") || 0);
-  const duracaoParaDisponibilidade = duracaoSelecionada || Number(configuracao?.configAgenda.intervalo ?? 30);
+  const intervaloReserva = Number(configuracao?.configAgenda.intervalo ?? 30);
   const funcionamentoHoje = useMemo(() => {
     if (!configuracao || !agora) return "Horário de funcionamento não configurado";
     const referencia = new Date(agora);
@@ -206,21 +200,21 @@ export default function PaginaCliente() {
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {
       const hora = horaFormatada(atual);
       const instante = new Date(`${dia}T${hora}:00`).getTime();
-      const fimDoServico = atual + duracaoParaDisponibilidade;
+      const fimDoServico = atual + intervaloReserva;
       const sobrepoePausa = expediente.temPausa && intervalosSeSobrepoem(atual, fimDoServico, minutos(expediente.pausaInicio), minutos(expediente.pausaFim));
       const sobrepoeBloqueio = bloqueios.some((bloqueio) => bloqueio.data === dia && intervalosSeSobrepoem(atual, fimDoServico, bloqueio.diaInteiro ? 0 : minutos(bloqueio.inicio), bloqueio.diaInteiro ? 24 * 60 : minutos(bloqueio.fim)));
       const terminaNoExpediente = fimDoServico <= minutos(expediente.fechamento);
       if (!sobrepoePausa && !sobrepoeBloqueio && terminaNoExpediente && instante >= limiteMinimo) lista.push(hora);
     }
     return lista;
-  }, [configuracao, dia, agora, duracaoParaDisponibilidade, bloqueios]);
+  }, [configuracao, dia, agora, intervaloReserva, bloqueios]);
   const horariosOcupados = useMemo(
     () => {
       const intervaloPadrao = Number(configuracao?.configAgenda.intervalo ?? 30);
       const reservasDoDia = agendamentos.filter((item) => item.data === dia && reservaEstaAtiva(item, agora));
       return new Set(horarios.filter((hora) => {
         const inicioPretendido = minutos(hora);
-        const fimPretendido = inicioPretendido + duracaoParaDisponibilidade;
+        const fimPretendido = inicioPretendido + intervaloReserva;
         return reservasDoDia.some((reserva) => {
           const inicioReserva = minutos(reserva.hora);
           const fimReserva = inicioReserva + (reserva.duracaoMinutos ?? intervaloPadrao);
@@ -228,7 +222,7 @@ export default function PaginaCliente() {
         });
       }));
     },
-    [agendamentos, configuracao, dia, duracaoParaDisponibilidade, horarios, agora]
+    [agendamentos, configuracao, dia, intervaloReserva, horarios, agora]
   );
 
   function selecionarDia(novoDia: string) {
@@ -388,9 +382,9 @@ export default function PaginaCliente() {
           </section>
         ) : (
           <>
-            {combos.length > 0 && <section className="mt-3"><div><p className="text-xs font-black uppercase tracking-[.2em] text-amber-400">Economize</p><h2 className="mt-1 text-xl font-black">Combos</h2></div><div className="mt-3 grid gap-3 lg:grid-cols-2">{combos.map((combo) => { const idSelecao = `combo:${combo.id}`; return <button key={combo.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-amber-400/20 bg-amber-400/5"}`}><div className="flex justify-between gap-3"><div><p className="font-black">{combo.nome}</p><p className="text-sm opacity-70">{duracaoComUnidade(combo.duracao)}</p></div><strong>{dinheiro(combo.valor)}</strong></div><p className="mt-3 text-xs font-bold opacity-70">Combo especial</p></button>; })}</div></section>}
+            {combos.length > 0 && <section className="mt-3"><div><p className="text-xs font-black uppercase tracking-[.2em] text-amber-400">Economize</p><h2 className="mt-1 text-xl font-black">Combos</h2></div><div className="mt-3 grid gap-3 lg:grid-cols-2">{combos.map((combo) => { const idSelecao = `combo:${combo.id}`; return <button key={combo.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-amber-400/20 bg-amber-400/5"}`}><div className="flex justify-between gap-3"><p className="font-black">{combo.nome}</p><strong>{dinheiro(combo.valor)}</strong></div><p className="mt-3 text-xs font-bold opacity-70">Combo especial</p></button>; })}</div></section>}
             <section className={`${combos.length > 0 ? "mt-6 border-t border-white/10 pt-6" : "mt-3"}`}><h2 className="text-xl font-black">Serviços</h2>
-              {servicos.length === 0 ? <div className="mt-3 rounded-3xl border border-dashed border-white/10 bg-neutral-900 p-5 text-center text-sm text-neutral-400">Nenhum serviço disponível no momento.</div> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{servicos.map((item) => { const idSelecao = `servico:${item.id}`; return <button key={item.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><div className="flex justify-between gap-3"><div><p className="font-black">{item.nome}</p><p className="text-sm opacity-70">{duracaoComUnidade(item.duracao)}</p></div><strong>{dinheiro(item.valor)}</strong></div></button>; })}</div>}
+              {servicos.length === 0 ? <div className="mt-3 rounded-3xl border border-dashed border-white/10 bg-neutral-900 p-5 text-center text-sm text-neutral-400">Nenhum serviço disponível no momento.</div> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{servicos.map((item) => { const idSelecao = `servico:${item.id}`; return <button key={item.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><div className="flex justify-between gap-3"><p className="font-black">{item.nome}</p><strong>{dinheiro(item.valor)}</strong></div></button>; })}</div>}
             </section>
             <section className="mt-6"><h2 className="text-xl font-black">Dia</h2>
               <div className="-mx-4 mt-3 flex gap-3 overflow-x-auto px-4 pb-2 lg:mx-0 lg:px-0">{dias.map((item) => <button key={item.data} onClick={() => selecionarDia(item.data)} className={`min-w-16 rounded-3xl border p-3 text-center ${item.data === dia ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><span className="block text-xs font-bold capitalize">{item.semana}</span><strong className="block text-2xl">{item.dia}</strong></button>)}</div>

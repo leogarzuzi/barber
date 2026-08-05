@@ -70,14 +70,13 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     const expediente = configuracao.diasFuncionamento.find((item) => item.id === idsDosDias[dataSelecionada.getDay()]);
     if (!expediente?.ativo) return [];
     const intervalo = Number(configuracao.configAgenda.intervalo);
-    const duracao = reserva.duracaoMinutos ?? intervalo;
     const minutosMinimos = Math.max(120, Number(configuracao.configAgenda.antecedenciaMinima));
     const limiteMinimo = relogio + minutosMinimos * 60 * 1000;
     const disponiveis: string[] = [];
 
     for (let atual = minutos(expediente.abertura); atual < minutos(expediente.fechamento); atual += intervalo) {
       const hora = horaFormatada(atual);
-      const fim = atual + duracao;
+      const fim = atual + intervalo;
       const instante = new Date(`${novaData}T${hora}:00`).getTime();
       const sobrepoePausa = expediente.temPausa && intervalosSeSobrepoem(atual, fim, minutos(expediente.pausaInicio), minutos(expediente.pausaFim));
       const sobrepoeBloqueio = bloqueios.some((item) => item.data === novaData && intervalosSeSobrepoem(atual, fim, item.diaInteiro ? 0 : minutos(item.inicio), item.diaInteiro ? 24 * 60 : minutos(item.fim)));

@@ -1,13 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Combo, Servico } from "@/lib/barber-storage";
 
-type ServicoBanco = { id: string; nome: string; duracao_minutos: number; valor_centavos: number; ativo: boolean };
-type ComboBanco = { id: string; nome: string; duracao_minutos: number; valor_centavos: number; desconto_percentual: number; ativo: boolean };
+type ServicoBanco = { id: string; nome: string; valor_centavos: number; ativo: boolean };
+type ComboBanco = { id: string; nome: string; valor_centavos: number; desconto_percentual: number; ativo: boolean };
 type VinculoBanco = { combo_id: string; servico_id: string; ordem: number };
 
 export async function buscarCatalogo(supabase: SupabaseClient, apenasAtivos = false) {
-  let consultaServicos = supabase.from("servicos").select("id, nome, duracao_minutos, valor_centavos, ativo").order("criado_em");
-  let consultaCombos = supabase.from("combos").select("id, nome, duracao_minutos, valor_centavos, desconto_percentual, ativo").order("criado_em");
+  let consultaServicos = supabase.from("servicos").select("id, nome, valor_centavos, ativo").order("criado_em");
+  let consultaCombos = supabase.from("combos").select("id, nome, valor_centavos, desconto_percentual, ativo").order("criado_em");
   if (apenasAtivos) {
     consultaServicos = consultaServicos.eq("ativo", true);
     consultaCombos = consultaCombos.eq("ativo", true);
@@ -25,7 +25,6 @@ export async function buscarCatalogo(supabase: SupabaseClient, apenasAtivos = fa
   const servicos = (resultadoServicos.data as ServicoBanco[]).map<Servico>((item) => ({
     id: item.id,
     nome: item.nome,
-    duracao: String(item.duracao_minutos),
     valor: item.valor_centavos / 100,
     status: item.ativo ? "Ativo" : "Inativo",
   }));
@@ -33,7 +32,6 @@ export async function buscarCatalogo(supabase: SupabaseClient, apenasAtivos = fa
   const combos = (resultadoCombos.data as ComboBanco[]).map<Combo>((item) => ({
     id: item.id,
     nome: item.nome,
-    duracao: String(item.duracao_minutos),
     valor: item.valor_centavos / 100,
     descontoPercentual: item.desconto_percentual,
     status: item.ativo ? "Ativo" : "Inativo",
@@ -46,7 +44,7 @@ export async function buscarCatalogo(supabase: SupabaseClient, apenasAtivos = fa
 export async function criarServico(supabase: SupabaseClient, servico: Omit<Servico, "id">) {
   const { error } = await supabase.from("servicos").insert({
     nome: servico.nome,
-    duracao_minutos: Number(servico.duracao),
+    duracao_minutos: 1,
     valor_centavos: Math.round(servico.valor * 100),
     ativo: servico.status === "Ativo",
   });
@@ -56,7 +54,6 @@ export async function criarServico(supabase: SupabaseClient, servico: Omit<Servi
 export async function atualizarServico(supabase: SupabaseClient, servico: Servico) {
   const { error } = await supabase.from("servicos").update({
     nome: servico.nome,
-    duracao_minutos: Number(servico.duracao),
     valor_centavos: Math.round(servico.valor * 100),
     ativo: servico.status === "Ativo",
   }).eq("id", servico.id);
@@ -66,7 +63,7 @@ export async function atualizarServico(supabase: SupabaseClient, servico: Servic
 export async function criarCombo(supabase: SupabaseClient, combo: Omit<Combo, "id">) {
   const { data, error } = await supabase.from("combos").insert({
     nome: combo.nome,
-    duracao_minutos: Number(combo.duracao),
+    duracao_minutos: 1,
     valor_centavos: Math.round(combo.valor * 100),
     desconto_percentual: combo.descontoPercentual ?? 0,
     ativo: combo.status === "Ativo",
@@ -84,7 +81,6 @@ export async function criarCombo(supabase: SupabaseClient, combo: Omit<Combo, "i
 export async function atualizarCombo(supabase: SupabaseClient, combo: Combo) {
   const { error } = await supabase.from("combos").update({
     nome: combo.nome,
-    duracao_minutos: Number(combo.duracao),
     valor_centavos: Math.round(combo.valor * 100),
     desconto_percentual: combo.descontoPercentual ?? 0,
     ativo: combo.status === "Ativo",

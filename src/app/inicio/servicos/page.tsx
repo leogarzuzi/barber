@@ -21,15 +21,9 @@ function numeroDecimal(valor: string) {
   const normalizado = limpo.includes(",") ? limpo.replace(/\./g, "").replace(",", ".") : limpo;
   return Number(normalizado);
 }
-function duracaoComUnidade(valor: string) {
-  const numero = somenteNumeros(valor);
-  return numero ? `${numero} min` : valor;
-}
-
 function recalcularComboComServicos(combo: Combo, listaServicos: Servico[], listaAnterior = listaServicos) {
   const servicosIds = combo.servicosIds.filter((id) => listaServicos.some((servico) => servico.id === id));
   const selecionados = listaServicos.filter((servico) => servicosIds.includes(servico.id));
-  const duracao = selecionados.reduce((total, servico) => total + Number(somenteNumeros(servico.duracao) || 0), 0);
   const valorOriginal = selecionados.reduce((total, servico) => total + servico.valor, 0);
   const valorOriginalAnterior = listaAnterior.filter((servico) => combo.servicosIds.includes(servico.id)).reduce((total, servico) => total + servico.valor, 0);
   const descontoAnterior = valorOriginalAnterior > 0 ? Math.round((1 - combo.valor / valorOriginalAnterior) * 100) : 0;
@@ -37,7 +31,6 @@ function recalcularComboComServicos(combo: Combo, listaServicos: Servico[], list
   return {
     ...combo,
     servicosIds,
-    duracao: String(duracao),
     valor: Number((valorOriginal * (1 - desconto / 100)).toFixed(2)),
     descontoPercentual: desconto,
     status: servicosIds.length >= 2 ? combo.status : "Inativo" as Status,
@@ -67,11 +60,9 @@ export default function ServicosPage() {
   const [comboParaApagar, setComboParaApagar] = useState<Combo | null>(null);
 
   const [nomeServico, setNomeServico] = useState("");
-  const [duracaoServico, setDuracaoServico] = useState("");
   const [valorServico, setValorServico] = useState("");
 
   const [nomeCombo, setNomeCombo] = useState("");
-  const [duracaoCombo, setDuracaoCombo] = useState("");
   const [valorCombo, setValorCombo] = useState("");
   const [descontoCombo, setDescontoCombo] = useState("0");
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>(
@@ -147,11 +138,9 @@ export default function ServicosPage() {
     setComboParaApagar(null);
 
     setNomeServico("");
-    setDuracaoServico("");
     setValorServico("");
 
     setNomeCombo("");
-    setDuracaoCombo("");
     setValorCombo("");
     setDescontoCombo("0");
     setServicosSelecionados([]);
@@ -160,7 +149,6 @@ export default function ServicosPage() {
   function abrirNovoServico() {
     setServicoEditando(null);
     setNomeServico("");
-    setDuracaoServico("");
     setValorServico("");
     setModalTipo("servico");
   }
@@ -168,7 +156,6 @@ export default function ServicosPage() {
   function abrirEditarServico(servico: Servico) {
     setServicoEditando(servico);
     setNomeServico(servico.nome);
-    setDuracaoServico(somenteNumeros(servico.duracao));
     setValorServico(String(servico.valor));
     setModalTipo("servico");
   }
@@ -176,7 +163,6 @@ export default function ServicosPage() {
   function abrirNovoCombo() {
     setComboEditando(null);
     setNomeCombo("");
-    setDuracaoCombo("");
     setValorCombo("");
     setDescontoCombo("0");
     setServicosSelecionados([]);
@@ -186,7 +172,6 @@ export default function ServicosPage() {
   function abrirEditarCombo(combo: Combo) {
     setComboEditando(combo);
     setNomeCombo(combo.nome);
-    setDuracaoCombo(somenteNumeros(combo.duracao));
     setValorCombo(String(combo.valor));
     const valorOriginal = combo.servicosIds.reduce((total, id) => total + (servicos.find((item) => item.id === id)?.valor ?? 0), 0);
     const descontoCalculado = valorOriginal > 0 ? Math.max(0, Math.round((1 - combo.valor / valorOriginal) * 100)) : 0;
@@ -203,14 +188,9 @@ export default function ServicosPage() {
 
   async function salvarServico() {
     const nomeNormalizado = normalizarTexto(nomeServico);
-    const duracaoNumerica = Number(somenteNumeros(duracaoServico));
     const valorNumerico = numeroDecimal(valorServico);
-    if (!nomeNormalizado || !duracaoServico || !valorServico) {
-      setAviso({ titulo: "Preencha o serviço", descricao: "Informe o nome, a duração e o valor do serviço." });
-      return;
-    }
-    if (!Number.isInteger(duracaoNumerica) || duracaoNumerica <= 0) {
-      setAviso({ titulo: "Duração inválida", descricao: "A duração do serviço precisa ser maior que zero minutos." });
+    if (!nomeNormalizado || !valorServico) {
+      setAviso({ titulo: "Preencha o serviço", descricao: "Informe o nome e o valor do serviço." });
       return;
     }
     if (!Number.isFinite(valorNumerico) || valorNumerico <= 0) {
@@ -222,7 +202,7 @@ export default function ServicosPage() {
       setProcessando(true);
       const supabase = criarClienteSupabase();
       if (servicoEditando) {
-        const atualizado = { ...servicoEditando, nome: nomeNormalizado, duracao: String(duracaoNumerica), valor: valorNumerico };
+        const atualizado = { ...servicoEditando, nome: nomeNormalizado, valor: valorNumerico };
         const novaLista = servicos.map((servico) => servico.id === atualizado.id ? atualizado : servico);
         await atualizarServico(supabase, atualizado);
         const combosAfetados = combos
@@ -230,7 +210,7 @@ export default function ServicosPage() {
           .map((combo) => recalcularComboComServicos(combo, novaLista, servicos));
         await Promise.all(combosAfetados.map((combo) => atualizarCombo(supabase, combo)));
       } else {
-        await criarServico(supabase, { nome: nomeNormalizado, duracao: String(duracaoNumerica), valor: valorNumerico, status: "Ativo" });
+        await criarServico(supabase, { nome: nomeNormalizado, valor: valorNumerico, status: "Ativo" });
       }
       await recarregarCatalogo();
       fecharTudo();
@@ -243,19 +223,14 @@ export default function ServicosPage() {
 
   async function salvarCombo() {
     const nomeNormalizado = normalizarTexto(nomeCombo);
-    const duracaoNumerica = Number(somenteNumeros(duracaoCombo));
     const valorNumerico = numeroDecimal(valorCombo);
-    if (!nomeNormalizado || !duracaoCombo || !valorCombo) {
-      setAviso({ titulo: "Preencha o combo", descricao: "Informe o nome, a duração e o valor do combo." });
+    if (!nomeNormalizado || !valorCombo) {
+      setAviso({ titulo: "Preencha o combo", descricao: "Informe o nome e o valor do combo." });
       return;
     }
 
     if (servicosSelecionados.length < 2) {
       setAviso({ titulo: "Selecione os serviços", descricao: "Escolha pelo menos dois serviços para criar um combo." });
-      return;
-    }
-    if (!Number.isInteger(duracaoNumerica) || duracaoNumerica <= 0) {
-      setAviso({ titulo: "Duração inválida", descricao: "A duração do combo precisa ser maior que zero minutos." });
       return;
     }
     if (!Number.isFinite(valorNumerico) || valorNumerico <= 0) {
@@ -267,7 +242,6 @@ export default function ServicosPage() {
       setProcessando(true);
       const dados = {
         nome: nomeNormalizado,
-        duracao: String(duracaoNumerica),
         servicosIds: servicosSelecionados,
         valor: valorNumerico,
         descontoPercentual: Number(descontoCombo || 0),
@@ -290,10 +264,8 @@ export default function ServicosPage() {
       : [...servicosSelecionados, id];
     setServicosSelecionados(novaLista);
     const selecionados = servicos.filter((item) => novaLista.includes(item.id));
-    const duracaoTotal = selecionados.reduce((total, item) => total + Number(somenteNumeros(item.duracao) || 0), 0);
     const valorOriginal = selecionados.reduce((total, item) => total + item.valor, 0);
     const desconto = Number(descontoCombo || 0);
-    setDuracaoCombo(String(duracaoTotal || ""));
     setValorCombo(String(Math.max(0, valorOriginal * (1 - desconto / 100)).toFixed(2)));
   }
 
@@ -465,9 +437,6 @@ export default function ServicosPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <h3 className="text-xl font-black">{servico.nome}</h3>
-                      <p className="mt-1 text-sm text-neutral-400">
-                        Duração: {duracaoComUnidade(servico.duracao)}
-                      </p>
                     </div>
 
                     <span className={`rounded-full px-3 py-1 text-[11px] font-black ${servico.status === "Ativo" ? "bg-green-500/10 text-green-300" : "bg-white/10 text-neutral-400"}`}>
@@ -533,9 +502,6 @@ export default function ServicosPage() {
                         <h3 className="text-xl font-black">{combo.nome}</h3>
                         <p className="mt-1 text-sm text-neutral-400">
                           {nomesServicosDoCombo(combo)}
-                        </p>
-                        <p className="mt-1 text-sm text-neutral-500">
-                          Duração: {duracaoComUnidade(combo.duracao)}
                         </p>
                       </div>
 
@@ -615,7 +581,7 @@ export default function ServicosPage() {
               >
                 <p className="text-lg font-black">Novo combo</p>
                 <p className="mt-1 text-sm text-neutral-400">
-                  Junte dois ou mais serviços com duração e preço especial.
+                  Junte dois ou mais serviços com preço especial.
                 </p>
               </button>
             </div>
@@ -646,7 +612,7 @@ export default function ServicosPage() {
                   {servicoEditando ? "Editar serviço" : "Novo serviço"}
                 </h2>
                 <p className="mt-1 text-sm text-neutral-400">
-                  Preencha nome, duração e valor.
+                  Preencha o nome e o valor.
                 </p>
               </div>
 
@@ -664,14 +630,6 @@ export default function ServicosPage() {
                 value={nomeServico}
                 onChange={(event) => setNomeServico(event.target.value)}
                 placeholder="Nome do serviço"
-                className="w-full rounded-2xl bg-neutral-950 px-4 py-4 text-sm outline-none focus:ring-2 focus:ring-amber-400"
-              />
-
-              <input
-                value={duracaoServico}
-                onChange={(event) => setDuracaoServico(somenteNumeros(event.target.value))}
-                placeholder="Duração em minutos. Ex: 40"
-                inputMode="numeric"
                 className="w-full rounded-2xl bg-neutral-950 px-4 py-4 text-sm outline-none focus:ring-2 focus:ring-amber-400"
               />
 
@@ -730,7 +688,7 @@ export default function ServicosPage() {
                   {comboEditando ? "Editar combo" : "Novo combo"}
                 </h2>
                 <p className="mt-1 text-sm text-neutral-400">
-                  Selecione os serviços, a duração e o preço do combo.
+                  Selecione os serviços e defina o preço do combo.
                 </p>
               </div>
 
@@ -775,9 +733,7 @@ export default function ServicosPage() {
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <p className="font-black">{servico.nome}</p>
-                              <p className="text-xs opacity-70">
-                                {duracaoComUnidade(servico.duracao)} • {dinheiro(servico.valor)}
-                              </p>
+                              <p className="text-xs opacity-70">{dinheiro(servico.valor)}</p>
                             </div>
 
                             <span className="text-sm font-black">
@@ -797,14 +753,6 @@ export default function ServicosPage() {
                 placeholder="Nome do combo. Ex: Corte + barba"
                 className="w-full rounded-2xl bg-neutral-950 px-4 py-4 text-sm outline-none focus:ring-2 focus:ring-amber-400"
               />
-
-              <label className="block">
-                <span className="mb-2 block text-xs font-bold text-neutral-400">Duração total</span>
-                <div className="flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400">
-                  <input value={duracaoCombo} onChange={(event) => setDuracaoCombo(somenteNumeros(event.target.value))} placeholder="60" inputMode="numeric" className="min-w-0 flex-1 bg-transparent px-4 py-4 text-sm outline-none" />
-                  <span className="flex items-center px-4 text-sm font-bold text-neutral-400">min</span>
-                </div>
-              </label>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-2xl bg-neutral-950 p-4">

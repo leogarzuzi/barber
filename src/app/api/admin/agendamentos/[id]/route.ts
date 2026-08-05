@@ -38,11 +38,20 @@ export async function PATCH(
     }
 
     const supabase = criarClienteSupabaseAdmin();
+    const [resultadoConfiguracao, resultadoAtual] = await Promise.all([
+      supabase.from("configuracoes").select("intervalo_minutos").eq("id", 1).single(),
+      supabase.from("agendamentos").select("data, hora").eq("id", id).single(),
+    ]);
+    if (resultadoConfiguracao.error) throw resultadoConfiguracao.error;
+    if (resultadoAtual.error) throw resultadoAtual.error;
+    const horarioFoiAlterado = resultadoAtual.data.data !== corpo.data
+      || String(resultadoAtual.data.hora).slice(0, 5) !== corpo.hora;
     const { data, error } = await supabase
       .from("agendamentos")
       .update({
         data: corpo.data,
         hora: corpo.hora,
+        ...(horarioFoiAlterado ? { duracao_minutos: resultadoConfiguracao.data.intervalo_minutos } : {}),
         status: corpo.status,
         historico: corpo.historico,
         google_sync_status: "pendente",
