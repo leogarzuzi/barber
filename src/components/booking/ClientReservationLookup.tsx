@@ -62,7 +62,8 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const status = reserva ? obterStatusAtendimento(reserva, relogio) : null;
   const inicioReserva = reserva ? new Date(`${reserva.data}T${reserva.hora}:00`).getTime() : 0;
   const dentroDoPrazo = Boolean(reserva && status === "Agendado" && inicioReserva - relogio >= DUAS_HORAS);
-  const dias = proximosDias(Number(configuracao?.configAgenda.diasParaAgendar ?? 7));
+  const janelaPadrao = Number(configuracao?.configAgenda.diasParaAgendar ?? 7);
+  const dias = proximosDias(reserva?.cobertoPorMensalidade ? Math.max(20, janelaPadrao) : janelaPadrao);
 
   const horariosRemarcacao = useMemo(() => {
     if (!reserva || !configuracao || !novaData) return [];

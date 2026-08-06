@@ -32,7 +32,7 @@ export async function GET() {
     if (erroConfiguracao) throw erroConfiguracao;
 
     const inicio = dataNaZona(configuracao.timezone);
-    const fim = somarDias(inicio, Math.max(0, configuracao.dias_para_agendar - 1));
+    const fim = somarDias(inicio, Math.max(19, configuracao.dias_para_agendar - 1));
     const [reservaResposta, bloqueioResposta] = await Promise.all([
       supabase
         .from("agendamentos")

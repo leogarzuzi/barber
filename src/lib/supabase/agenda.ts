@@ -4,7 +4,7 @@ import type { Agendamento, BloqueioAgenda, Cliente } from "@/lib/barber-storage"
 function horaCurta(hora: string) { return hora.slice(0, 5); }
 
 export async function buscarAgendamentos(supabase: SupabaseClient, data?: string) {
-  let consulta = supabase.from("agendamentos").select("id, protocolo, cliente_nome, whatsapp, item_nome, data, hora, duracao_minutos, valor_centavos, status, historico").order("data", { ascending: false }).order("hora", { ascending: false });
+  let consulta = supabase.from("agendamentos").select("id, protocolo, cliente_nome, whatsapp, item_nome, data, hora, duracao_minutos, valor_centavos, coberto_por_mensalidade, status, historico").order("data", { ascending: false }).order("hora", { ascending: false });
   if (data) consulta = consulta.eq("data", data);
   const { data: linhas, error } = await consulta;
   if (error) throw error;
@@ -18,6 +18,7 @@ export async function buscarAgendamentos(supabase: SupabaseClient, data?: string
     hora: horaCurta(item.hora),
     duracaoMinutos: item.duracao_minutos,
     valor: item.valor_centavos / 100,
+    cobertoPorMensalidade: item.coberto_por_mensalidade,
     statusManual: item.status === "cancelado" ? "Cancelado" : item.status === "nao_compareceu" ? "Não compareceu" : undefined,
     historicoAlteracoes: Array.isArray(item.historico) ? item.historico : [],
   }));
@@ -30,9 +31,9 @@ export async function buscarBloqueios(supabase: SupabaseClient) {
 }
 
 export async function buscarClientes(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("clientes").select("id, nome, whatsapp, email, criado_em, atualizado_em").order("atualizado_em", { ascending: false });
+  const { data, error } = await supabase.from("clientes").select("id, nome, whatsapp, email, mensalista, mensalidade_centavos, criado_em, atualizado_em").order("atualizado_em", { ascending: false });
   if (error) throw error;
-  return data.map<Cliente>((item) => ({ id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em }));
+  return data.map<Cliente>((item) => ({ id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, mensalista: item.mensalista, mensalidade: item.mensalidade_centavos / 100, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em }));
 }
 
 export async function atualizarAgendamento(item: Agendamento) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { intervalosSeSobrepoem, normalizarAntecedenciaMinutos, validarDiasFuncionamento } from "../src/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, normalizarAntecedenciaMinutos, validarDiasFuncionamento, validarLimiteReservasCliente } from "../src/lib/agenda-rules.mjs";
 import { gerarProtocolo } from "../src/lib/protocolo.mjs";
 
 test("permite iniciar exatamente quando o atendimento anterior termina", () => {
@@ -43,6 +43,19 @@ test("mantém antecedências de 15 minutos a 3 horas", () => {
 test("limita configurações antigas acima de 3 horas", () => {
   assert.equal(normalizarAntecedenciaMinutos(240), 180);
   assert.equal(normalizarAntecedenciaMinutos(1440), 180);
+});
+
+test("cliente avulso não pode manter duas reservas futuras", () => {
+  assert.equal(validarLimiteReservasCliente({ mensalista: false, datasAtivas: ["2026-08-10"], novaData: "2026-08-12" }), "reserva-existente");
+});
+
+test("mensalista pode manter até quatro reservas em dias diferentes", () => {
+  assert.equal(validarLimiteReservasCliente({ mensalista: true, datasAtivas: ["2026-08-10", "2026-08-12", "2026-08-14"], novaData: "2026-08-16" }), null);
+  assert.equal(validarLimiteReservasCliente({ mensalista: true, datasAtivas: ["2026-08-10", "2026-08-12", "2026-08-14", "2026-08-16"], novaData: "2026-08-18" }), "limite-mensalista");
+});
+
+test("mensalista não pode criar duas reservas no mesmo dia", () => {
+  assert.equal(validarLimiteReservasCliente({ mensalista: true, datasAtivas: ["2026-08-10"], novaData: "2026-08-10" }), "mesmo-dia");
 });
 
 test("gera protocolo seguro no formato público esperado", () => {

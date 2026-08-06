@@ -34,7 +34,7 @@ function RegistroCard({ item, agora }: { item: Agendamento; agora: number }) {
           {item.codigo && <p className="mt-2 font-mono text-[11px] font-bold tracking-wider text-neutral-500">{item.codigo}</p>}
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-black">{dinheiro(item.valor)}</p>
+          <p className="font-black">{item.cobertoPorMensalidade ? "Mensalista" : dinheiro(item.valor)}</p>
           <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-[11px] font-black ${statusClass(status)}`}>{status}</span>
         </div>
       </div>

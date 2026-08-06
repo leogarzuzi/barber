@@ -23,6 +23,17 @@ export function normalizarAntecedenciaMinutos(valor) {
   return antecedenciasPermitidas.find((opcao) => minutos <= opcao) ?? 180;
 }
 
+/**
+ * @param {{ mensalista: boolean, datasAtivas: string[], novaData: string }} dados
+ * @returns {"reserva-existente" | "limite-mensalista" | "mesmo-dia" | null}
+ */
+export function validarLimiteReservasCliente({ mensalista, datasAtivas, novaData }) {
+  if (!mensalista) return datasAtivas.length > 0 ? "reserva-existente" : null;
+  if (datasAtivas.length >= 4) return "limite-mensalista";
+  if (datasAtivas.includes(novaData)) return "mesmo-dia";
+  return null;
+}
+
 /** @param {string} hora */
 function minutos(hora) {
   const [horas, minutosHora] = hora.split(":").map(Number);

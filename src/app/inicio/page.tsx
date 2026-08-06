@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Agendamento, dataLocal, reservaEstaAtiva } from "@/lib/barber-storage";
+import { Agendamento, Cliente, dataLocal, obterStatusAtendimento, reservaEstaAtiva } from "@/lib/barber-storage";
 import { criarClienteSupabase } from "@/lib/supabase/client";
-import { buscarAgendamentos } from "@/lib/supabase/agenda";
+import { buscarAgendamentos, buscarClientes } from "@/lib/supabase/agenda";
 
 function dinheiro(valor: number) {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -18,14 +18,17 @@ function saudacao() {
 
 export default function InicioPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [cadastros, setCadastros] = useState<Cliente[]>([]);
   const [agora, setAgora] = useState(0);
 
   useEffect(() => {
-    async function carregar() { try { setAgendamentos(await buscarAgendamentos(criarClienteSupabase())); } finally { setAgora(Date.now()); } }
+    async function carregar() { try { const supabase = criarClienteSupabase(); const [reservas, clientesBanco] = await Promise.all([buscarAgendamentos(supabase), buscarClientes(supabase)]); setAgendamentos(reservas); setCadastros(clientesBanco); } finally { setAgora(Date.now()); } }
     carregar();
     window.addEventListener("ph10:agendamentos-atualizados", carregar);
+    window.addEventListener("ph10:clientes-atualizados", carregar);
     return () => {
       window.removeEventListener("ph10:agendamentos-atualizados", carregar);
+      window.removeEventListener("ph10:clientes-atualizados", carregar);
     };
   }, []);
 
@@ -34,7 +37,13 @@ export default function InicioPage() {
     .filter((item) => item.data >= hoje && reservaEstaAtiva(item, agora))
     .sort((a, b) => `${a.data} ${a.hora}`.localeCompare(`${b.data} ${b.hora}`))
     .slice(0, 5), [agendamentos, hoje, agora]);
-  const faturamento = agendamentos.filter((item) => !item.statusManual).reduce((total, item) => total + item.valor, 0);
+  const mesAtual = hoje.slice(0, 7);
+  const faturamentoAvulso = agendamentos
+    .filter((item) => item.data.startsWith(mesAtual) && !item.cobertoPorMensalidade)
+    .filter((item) => { const status = obterStatusAtendimento(item, agora); return status !== "Cancelado" && status !== "Não compareceu"; })
+    .reduce((total, item) => total + item.valor, 0);
+  const faturamentoMensalistas = cadastros.filter((cliente) => cliente.mensalista).reduce((total, cliente) => total + cliente.mensalidade, 0);
+  const faturamento = faturamentoAvulso + faturamentoMensalistas;
   const clientes = new Set(agendamentos.map((item) => item.whatsapp)).size;
 
   return (
@@ -49,7 +58,7 @@ export default function InicioPage() {
       <section className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <div className="card p-4 lg:p-5"><p className="metric-label">Agendamentos</p><strong className="metric-value">{agendamentos.length}</strong><p className="mt-3 text-[11px] text-[#8f867d]">registrados</p></div>
         <div className="card p-4 lg:p-5"><p className="metric-label">Clientes</p><strong className="metric-value text-[#c6d0ba]">{clientes}</strong><p className="mt-3 text-[11px] text-[#8f867d]">clientes únicos</p></div>
-        <div className="card card-accent col-span-2 p-4 lg:col-span-1 lg:p-5"><p className="metric-label !text-[#695d4e]">Faturamento previsto</p><strong className="mt-3 block text-2xl font-black">{dinheiro(faturamento)}</strong><p className="mt-3 text-[11px] text-[#695d4e]">com a agenda atual</p></div>
+        <div className="card card-accent col-span-2 p-4 lg:col-span-1 lg:p-5"><p className="metric-label !text-[#695d4e]">Faturamento previsto</p><strong className="mt-3 block text-2xl font-black">{dinheiro(faturamento)}</strong><p className="mt-3 text-[11px] text-[#695d4e]">reservas e mensalidades deste mês</p></div>
       </section>
 
       <section className="mt-4 grid gap-3 md:grid-cols-3"><a href="/inicio/agenda" className="card card-accent group p-5"><p className="text-xs font-bold uppercase tracking-widest text-[#746653]">Agenda</p><h3 className="display-font mt-6 text-3xl">Organizar semana</h3><p className="mt-4 text-sm">Abrir calendário →</p></a><a href="/inicio/clientes" className="card p-5"><p className="eyebrow">Relacionamento</p><h3 className="display-font mt-6 text-3xl">Seus clientes</h3><p className="subtle mt-4 text-sm">Histórico e retornos →</p></a><a href="/inicio/servicos" className="card p-5"><p className="eyebrow">Menu</p><h3 className="display-font mt-6 text-3xl">Serviços & valores</h3><p className="subtle mt-4 text-sm">Gerenciar catálogo →</p></a></section>

@@ -17,6 +17,7 @@ import {
 import { intervalosSeSobrepoem } from "@/lib/agenda-rules.mjs";
 
 const idsDosDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+type EstadoIdentificacao = "inicial" | "verificando" | "cadastrado" | "novo" | "erro";
 
 function minutos(hora: string) { const [h, m] = hora.split(":").map(Number); return h * 60 + m; }
 function horaFormatada(total: number) { return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`; }
@@ -70,6 +71,8 @@ export default function PaginaCliente() {
   const [horario, setHorario] = useState("");
   const [nome, setNome] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
+  const [estadoIdentificacao, setEstadoIdentificacao] = useState<EstadoIdentificacao>("inicial");
+  const [mensalista, setMensalista] = useState(false);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [bloqueios, setBloqueios] = useState<BloqueioAgenda[]>([]);
   const [servicos, setServicos] = useState<Servico[]>([]);
@@ -168,6 +171,43 @@ export default function PaginaCliente() {
     };
   }, []);
 
+  useEffect(() => {
+    if (whatsapp.length !== 9) return;
+
+    const controle = new AbortController();
+    const espera = window.setTimeout(async () => {
+      setEstadoIdentificacao("verificando");
+      try {
+        const resposta = await fetch("/api/public/clientes/identificar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ whatsapp: `5521${whatsapp}` }),
+          cache: "no-store",
+          signal: controle.signal,
+        });
+        const resultado = await resposta.json() as { encontrado?: boolean; nome?: string; mensalista?: boolean; erro?: string };
+        if (!resposta.ok) throw new Error(resultado.erro);
+        if (resultado.encontrado && resultado.nome) {
+          setNome(resultado.nome);
+          setMensalista(Boolean(resultado.mensalista));
+          setEstadoIdentificacao("cadastrado");
+        } else {
+          setNome("");
+          setMensalista(false);
+          setEstadoIdentificacao("novo");
+        }
+      } catch {
+        if (controle.signal.aborted) return;
+        setEstadoIdentificacao("erro");
+      }
+    }, 500);
+
+    return () => {
+      window.clearTimeout(espera);
+      controle.abort();
+    };
+  }, [whatsapp]);
+
   const opcoesAgendamento: Servico[] = [
     ...servicos.map((item) => ({ ...item, id: `servico:${item.id}` })),
     ...combos.map((combo) => ({ id: `combo:${combo.id}`, nome: combo.nome, valor: combo.valor, status: "Ativo" as const })),
@@ -188,7 +228,9 @@ export default function PaginaCliente() {
     if (!expediente?.ativo) return "Fechado hoje";
     return `Hoje, ${expediente.abertura} às ${expediente.fechamento}`;
   }, [configuracao, agora]);
-  const dias = proximosDias(Number(configuracao?.configAgenda.diasParaAgendar ?? 7));
+  const identificado = estadoIdentificacao === "cadastrado" || estadoIdentificacao === "novo";
+  const janelaPadrao = Number(configuracao?.configAgenda.diasParaAgendar ?? 7);
+  const dias = proximosDias(mensalista ? Math.max(20, janelaPadrao) : janelaPadrao);
   const horarios = useMemo(() => {
     if (!configuracao) return [];
     const dataSelecionada = new Date(`${dia}T12:00:00`);
@@ -235,6 +277,16 @@ export default function PaginaCliente() {
     setHorario("");
   }
 
+  function alterarWhatsapp(valor: string) {
+    setWhatsapp(somenteDigitos(valor));
+    setEstadoIdentificacao("inicial");
+    setMensalista(false);
+    setNome("");
+    setSelecoes([]);
+    setHorario("");
+    setDia(proximosDias(1)[0].data);
+  }
+
   function fecharAvisoFormulario() {
     if (avisoFormulario?.recarregar) {
       window.location.reload();
@@ -246,7 +298,7 @@ export default function PaginaCliente() {
   async function agendar() {
     if (processandoReservaRef.current) return;
 
-    if (!servico || !dia || !horario || !nome.trim() || !whatsapp.trim()) {
+    if (!identificado || !servico || !dia || !horario || !nome.trim() || !whatsapp.trim()) {
       setAvisoFormulario({ titulo: "Faltam algumas informações", mensagem: "Escolha ao menos um serviço ou combo, o dia e o horário e preencha seus dados para continuar." });
       return;
     }
@@ -316,7 +368,7 @@ export default function PaginaCliente() {
             <header className="hero-panel">
               <div className="flex items-center gap-4 sm:gap-5">
                 <div className="grid h-28 w-28 shrink-0 place-items-center overflow-hidden rounded-full border-2 border-amber-400/30 bg-neutral-900 text-2xl font-black text-amber-400 shadow-[0_16px_40px_rgba(0,0,0,.22)] sm:h-32 sm:w-32">
-                  {perfil.foto ? <Image src={perfil.foto} alt={`Foto de ${perfil.nome}`} width={128} height={128} unoptimized className="h-full w-full object-cover" /> : "PH"}
+                  {perfil.foto ? <Image src={perfil.foto} alt={`Foto de ${perfil.nome}`} width={128} height={128} priority unoptimized className="h-full w-full object-cover" /> : "PH"}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">{perfil.subtitulo || "Barbearia"}</p>
@@ -337,7 +389,23 @@ export default function PaginaCliente() {
                 onAtualizar={setAgendamentos}
               />
             </div>
-            <p className="mt-5 text-sm text-neutral-400">Escolha serviços e combos, o dia e um horário disponível.</p>
+            <section className="mt-5 rounded-[2rem] border border-white/10 bg-neutral-900 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div><p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Identificação</p><h2 className="mt-1 text-xl font-black">Comece pelo WhatsApp</h2></div>
+                {mensalista && <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-amber-400/40 bg-amber-400/10 text-sm font-black text-amber-300" title="Cliente mensalista">M</span>}
+              </div>
+              <div className="mt-4 flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400"><span className="flex items-center border-r border-white/10 px-4 text-sm font-black text-amber-400">+55 21</span><input value={whatsapp} onChange={(event) => alterarWhatsapp(event.target.value)} placeholder="9 0000-0000" inputMode="numeric" autoComplete="tel" maxLength={9} className="min-w-0 flex-1 bg-transparent px-4 py-4 outline-none" /></div>
+              {estadoIdentificacao === "verificando" && <p className="mt-3 text-sm text-neutral-400">Verificando cadastro...</p>}
+              {estadoIdentificacao === "erro" && <p className="mt-3 text-sm text-red-300">Não foi possível verificar agora. Apague um número e digite novamente.</p>}
+              {(estadoIdentificacao === "cadastrado" || estadoIdentificacao === "novo") && (
+                <div className="mt-3 overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400">
+                  <input value={nome} onChange={(event) => setNome(somenteLetras(event.target.value))} placeholder="Seu nome" autoComplete="name" readOnly={estadoIdentificacao === "cadastrado"} aria-readonly={estadoIdentificacao === "cadastrado"} className={`w-full bg-transparent px-4 py-4 outline-none ${estadoIdentificacao === "cadastrado" ? "text-neutral-300" : ""}`} />
+                </div>
+              )}
+              {estadoIdentificacao === "cadastrado" && <p className="mt-3 text-xs text-green-300">Olá, {nome.split(" ")[0]}.</p>}
+              {estadoIdentificacao === "novo" && <p className="mt-3 text-xs text-neutral-400">Novo cliente: informe seu nome para concluir a reserva.</p>}
+            </section>
+            {identificado && <p className="mt-5 text-sm text-neutral-400">Escolha serviços e combos, o dia e um horário disponível.</p>}
           </>
         )}
 
@@ -365,7 +433,7 @@ export default function PaginaCliente() {
                 <div className="flex justify-between gap-4"><dt className="text-neutral-400">Serviço</dt><dd className="text-right font-bold">{reservaConcluida.servico}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-neutral-400">Data</dt><dd className="text-right font-bold">{reservaConcluida.data.split("-").reverse().join("/")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-neutral-400">Horário</dt><dd className="text-right font-bold">{reservaConcluida.hora}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-neutral-400">Valor</dt><dd className="text-right font-bold">{dinheiro(reservaConcluida.valor)}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-neutral-400">Valor</dt><dd className="text-right font-bold">{reservaConcluida.cobertoPorMensalidade ? "Incluso na mensalidade" : dinheiro(reservaConcluida.valor)}</dd></div>
               </dl>
             </div>
             <p className="mt-4 text-xs leading-relaxed text-neutral-400">Guarde esse código. Ele identifica sua reserva caso você precise falar com a PH10.</p>
@@ -378,13 +446,13 @@ export default function PaginaCliente() {
               Enviar confirmação ao PH10
             </a>
             <p className="mt-2 text-xs text-neutral-400">A mensagem será aberta pronta. Revise e toque em enviar no WhatsApp.</p>
-            <button onClick={() => { setReservaConcluida(null); setSelecoes([]); setHorario(""); setNome(""); setWhatsapp(""); }} className="mt-4 w-full rounded-2xl bg-white/10 py-4 text-sm font-black">Voltar ao início</button>
+            <button onClick={() => { setReservaConcluida(null); setSelecoes([]); setHorario(""); setNome(""); setWhatsapp(""); setMensalista(false); setEstadoIdentificacao("inicial"); }} className="mt-4 w-full rounded-2xl bg-white/10 py-4 text-sm font-black">Voltar ao início</button>
           </section>
         ) : (
-          <>
-            {combos.length > 0 && <section className="mt-3"><div><p className="text-xs font-black uppercase tracking-[.2em] text-amber-400">Economize</p><h2 className="mt-1 text-xl font-black">Combos</h2></div><div className="mt-3 grid gap-3 lg:grid-cols-2">{combos.map((combo) => { const idSelecao = `combo:${combo.id}`; return <button key={combo.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-amber-400/20 bg-amber-400/5"}`}><div className="flex justify-between gap-3"><p className="font-black">{combo.nome}</p><strong>{dinheiro(combo.valor)}</strong></div><p className="mt-3 text-xs font-bold opacity-70">Combo especial</p></button>; })}</div></section>}
+          <div inert={!identificado} aria-hidden={!identificado} className={`transition duration-300 ${!identificado ? "pointer-events-none max-h-[30rem] select-none overflow-hidden opacity-35 blur-[2px] [mask-image:linear-gradient(to_bottom,black_65%,transparent)]" : ""}`}>
+            {combos.length > 0 && <section className="mt-3"><div><p className="text-xs font-black uppercase tracking-[.2em] text-amber-400">Economize</p><h2 className="mt-1 text-xl font-black">Combos</h2></div><div className="mt-3 grid gap-3 lg:grid-cols-2">{combos.map((combo) => { const idSelecao = `combo:${combo.id}`; return <button key={combo.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-amber-400/20 bg-amber-400/5"}`}><div className="flex justify-between gap-3"><p className="font-black">{combo.nome}</p><strong>{mensalista ? "Incluso" : dinheiro(combo.valor)}</strong></div><p className="mt-3 text-xs font-bold opacity-70">Combo especial</p></button>; })}</div></section>}
             <section className={`${combos.length > 0 ? "mt-6 border-t border-white/10 pt-6" : "mt-3"}`}><h2 className="text-xl font-black">Serviços</h2>
-              {servicos.length === 0 ? <div className="mt-3 rounded-3xl border border-dashed border-white/10 bg-neutral-900 p-5 text-center text-sm text-neutral-400">Nenhum serviço disponível no momento.</div> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{servicos.map((item) => { const idSelecao = `servico:${item.id}`; return <button key={item.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><div className="flex justify-between gap-3"><p className="font-black">{item.nome}</p><strong>{dinheiro(item.valor)}</strong></div></button>; })}</div>}
+              {servicos.length === 0 ? <div className="mt-3 rounded-3xl border border-dashed border-white/10 bg-neutral-900 p-5 text-center text-sm text-neutral-400">Nenhum serviço disponível no momento.</div> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{servicos.map((item) => { const idSelecao = `servico:${item.id}`; return <button key={item.id} onClick={() => alternarSelecao(idSelecao)} className={`rounded-3xl border p-4 text-left ${selecoes.includes(idSelecao) ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><div className="flex justify-between gap-3"><p className="font-black">{item.nome}</p><strong>{mensalista ? "Incluso" : dinheiro(item.valor)}</strong></div></button>; })}</div>}
             </section>
             <section className="mt-6"><h2 className="text-xl font-black">Dia</h2>
               <div className="-mx-4 mt-3 flex gap-3 overflow-x-auto px-4 pb-2 lg:mx-0 lg:px-0">{dias.map((item) => <button key={item.data} onClick={() => selecionarDia(item.data)} className={`min-w-16 rounded-3xl border p-3 text-center ${item.data === dia ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-900"}`}><span className="block text-xs font-bold capitalize">{item.semana}</span><strong className="block text-2xl">{item.dia}</strong></button>)}</div>
@@ -394,15 +462,8 @@ export default function PaginaCliente() {
               {carregado && horarios.length === 0 && <p className="mt-3 rounded-2xl bg-neutral-900 p-4 text-center text-sm text-neutral-400">Não há mais horários disponíveis para este dia.</p>}
               {horariosOcupados.size > 0 && <p className="mt-2 text-xs text-neutral-500">Horários riscados já estão ocupados.</p>}
             </section>
-            <section className="mt-6 rounded-[2rem] bg-neutral-900 p-5">
-              <h2 className="text-xl font-black">Seus dados</h2>
-              <div className="mt-4 overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400">
-                <input value={nome} onChange={(e) => setNome(somenteLetras(e.target.value))} placeholder="Seu nome" autoComplete="name" className="w-full bg-transparent px-4 py-4 outline-none" />
-              </div>
-              <div className="mt-3 flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400"><span className="flex items-center border-r border-white/10 px-4 text-sm font-black text-amber-400">+55 21</span><input value={whatsapp} onChange={(e) => setWhatsapp(somenteDigitos(e.target.value))} placeholder="9 0000-0000" inputMode="numeric" autoComplete="tel" maxLength={9} className="min-w-0 flex-1 bg-transparent px-4 py-4 outline-none" /></div>
-            </section>
-            <div className="sticky bottom-0 -mx-4 mt-6 bg-neutral-950/95 p-4 backdrop-blur lg:static lg:mx-0 lg:p-0"><button onClick={agendar} disabled={processandoReserva} className="w-full rounded-2xl bg-amber-400 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-70">{processandoReserva ? "Processando..." : "Agendar horário"}</button>{servico && horario && <p className="mt-3 text-center text-xs text-neutral-400">{servico.nome} • {dinheiro(servico.valor)} • {horario}</p>}</div>
-          </>
+            <div className="sticky bottom-0 -mx-4 mt-6 bg-neutral-950/95 p-4 backdrop-blur lg:static lg:mx-0 lg:p-0"><button onClick={agendar} disabled={processandoReserva} className="w-full rounded-2xl bg-amber-400 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-70">{processandoReserva ? "Processando..." : "Agendar horário"}</button>{servico && horario && <p className="mt-3 text-center text-xs text-neutral-400">{servico.nome} • {mensalista ? "Incluso no plano" : dinheiro(servico.valor)} • {horario}</p>}</div>
+          </div>
         )}
       </div>
 

@@ -10,6 +10,7 @@ import {
 } from "@/lib/barber-storage";
 import { criarClienteSupabase } from "@/lib/supabase/client";
 import { buscarAgendamentos, buscarClientes } from "@/lib/supabase/agenda";
+import NoticeDialog from "@/components/NoticeDialog";
 
 type ClienteResumo = Cliente & {
   ultimoAtendimento: string | null;
@@ -34,6 +35,10 @@ export default function ClientesPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [agora, setAgora] = useState(0);
   const [clienteHistorico, setClienteHistorico] = useState<ClienteResumo | null>(null);
+  const [busca, setBusca] = useState("");
+  const [clienteMensalista, setClienteMensalista] = useState<ClienteResumo | null>(null);
+  const [processando, setProcessando] = useState(false);
+  const [aviso, setAviso] = useState<{ titulo: string; descricao: string } | null>(null);
 
   useEffect(() => {
     async function carregar() {
@@ -84,6 +89,35 @@ export default function ClientesPage() {
       .sort((a, b) => `${b.data} ${b.hora}`.localeCompare(`${a.data} ${a.hora}`));
   }, [agendamentos, clienteHistorico]);
 
+  const clientesFiltrados = useMemo(() => {
+    const termo = busca.trim().toLocaleLowerCase("pt-BR");
+    const numeros = busca.replace(/\D/g, "");
+    if (!termo) return clientes;
+    return clientes.filter((cliente) => cliente.nome.toLocaleLowerCase("pt-BR").includes(termo)
+      || (numeros && normalizarWhatsapp(cliente.whatsapp).includes(numeros)));
+  }, [clientes, busca]);
+
+  async function alternarMensalista() {
+    if (!clienteMensalista || processando) return;
+    try {
+      setProcessando(true);
+      const resposta = await fetch(`/api/admin/clientes/${encodeURIComponent(clienteMensalista.id)}/mensalista`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mensalista: !clienteMensalista.mensalista }),
+      });
+      const resultado = await resposta.json() as { erro?: string };
+      if (!resposta.ok) throw new Error(resultado.erro);
+      setCadastros((lista) => lista.map((cliente) => cliente.id === clienteMensalista.id ? { ...cliente, mensalista: !clienteMensalista.mensalista } : cliente));
+      window.dispatchEvent(new Event("ph10:clientes-atualizados"));
+      setClienteMensalista(null);
+    } catch {
+      setAviso({ titulo: "Não foi possível alterar", descricao: "O plano mensal do cliente não foi modificado. Tente novamente." });
+    } finally {
+      setProcessando(false);
+    }
+  }
+
   function abrirWhatsapp(cliente: Cliente) {
     const mensagem = encodeURIComponent(`Olá, ${cliente.nome}! Tudo bem? Gostaria de agendar um horário na PH10 esta semana?`);
     return `https://wa.me/${normalizarWhatsapp(cliente.whatsapp)}?text=${mensagem}`;
@@ -97,14 +131,20 @@ export default function ClientesPage() {
           <div className="mt-3"><h1 className="text-3xl font-black">Clientes</h1><p className="mt-1 text-sm text-neutral-400">Cadastros criados automaticamente pelas reservas.</p></div>
         </header>
 
+        <section className="mt-5 rounded-[1.75rem] bg-neutral-900 p-4">
+          <label className="block"><span className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Pesquisar</span><div className="mt-3 flex items-center gap-3 rounded-2xl bg-neutral-950 px-4 focus-within:ring-2 focus-within:ring-amber-400"><svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 shrink-0 text-neutral-500" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Nome ou WhatsApp" inputMode="search" className="min-w-0 flex-1 bg-transparent py-4 text-base outline-none" /></div></label>
+        </section>
+
         <section className="mt-5 space-y-3">
           {clientes.length === 0 ? (
             <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-neutral-900 p-6 text-center"><p className="text-lg font-black">Nenhum cliente cadastrado</p><p className="mt-2 text-sm text-neutral-400">O primeiro cadastro será criado automaticamente quando alguém reservar.</p></div>
-          ) : clientes.map((cliente) => (
+          ) : clientesFiltrados.length === 0 ? (
+            <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-neutral-900 p-6 text-center"><p className="text-lg font-black">Nenhum cliente encontrado</p><p className="mt-2 text-sm text-neutral-400">Confira o nome ou o WhatsApp pesquisado.</p></div>
+          ) : clientesFiltrados.map((cliente) => (
             <article key={cliente.id} className="rounded-[1.75rem] bg-neutral-900 p-4">
               <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0"><h2 className="truncate text-lg font-black">{cliente.nome}</h2><p className="mt-1 text-sm text-neutral-400">{formatarWhatsapp(cliente.whatsapp)}</p><p className="text-sm text-neutral-400">{cliente.ultimoAtendimento ? `Último: ${cliente.ultimoAtendimento}` : "Ainda sem atendimento concluído"}</p></div>
-                <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-black ${cliente.status === "Ativo" ? "bg-green-500/10 text-green-300" : "bg-yellow-500/10 text-yellow-300"}`}>{cliente.status}</span>
+                <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate text-lg font-black">{cliente.nome}</h2>{cliente.mensalista && <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-400 text-[10px] font-black text-neutral-950" title="Mensalista">M</span>}</div><p className="mt-1 text-sm text-neutral-400">{formatarWhatsapp(cliente.whatsapp)}</p><p className="text-sm text-neutral-400">{cliente.ultimoAtendimento ? `Último: ${cliente.ultimoAtendimento}` : "Ainda sem atendimento concluído"}</p></div>
+                <div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => setClienteMensalista(cliente)} aria-label={cliente.mensalista ? `Remover plano mensal de ${cliente.nome}` : `Tornar ${cliente.nome} mensalista`} title={cliente.mensalista ? "Remover mensalista" : "Tornar mensalista"} className={`grid h-9 w-9 place-items-center rounded-full border text-xs font-black ${cliente.mensalista ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-white/5 text-neutral-400"}`}>M</button><span className={`rounded-full px-3 py-1 text-[11px] font-black ${cliente.status === "Ativo" ? "bg-green-500/10 text-green-300" : "bg-yellow-500/10 text-yellow-300"}`}>{cliente.status}</span></div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2"><a href={abrirWhatsapp(cliente)} target="_blank" rel="noreferrer" className="rounded-2xl bg-green-500 px-3 py-3 text-center text-xs font-black text-white">WhatsApp</a><button type="button" onClick={() => setClienteHistorico(cliente)} className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black">Ver histórico</button></div>
             </article>
@@ -124,6 +164,17 @@ export default function ClientesPage() {
           </div>
         </div>
       )}
+      {clienteMensalista && (
+        <div onClick={() => !processando && setClienteMensalista(null)} className="fixed inset-0 z-[230] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center text-white shadow-2xl">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-amber-400/30 bg-amber-400/10 text-xl font-black text-amber-300">M</div>
+            <h2 className="mt-4 text-2xl font-black">{clienteMensalista.mensalista ? "Remover mensalista?" : "Ativar mensalista?"}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">{clienteMensalista.mensalista ? `Ao confirmar, ${clienteMensalista.nome} deixará de ser mensalista.` : `Ao confirmar, ${clienteMensalista.nome} se tornará mensalista e terá os benefícios do plano.`}</p>
+            <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={processando} onClick={() => setClienteMensalista(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:opacity-50">Cancelar</button><button type="button" disabled={processando} onClick={alternarMensalista} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:opacity-50">{processando ? "Salvando..." : "Confirmar"}</button></div>
+          </div>
+        </div>
+      )}
+      {aviso && <NoticeDialog titulo={aviso.titulo} descricao={aviso.descricao} onFechar={() => setAviso(null)} />}
     </main>
   );
 }

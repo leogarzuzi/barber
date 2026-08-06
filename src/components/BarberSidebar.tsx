@@ -13,6 +13,7 @@ const menu = [
   { nome: "Agenda", href: "/inicio/agenda", icon: "◷" },
   { nome: "Histórico", href: "/inicio/historico", icon: "◴" },
   { nome: "Clientes", href: "/inicio/clientes", icon: "◉" },
+  { nome: "Financeiro", href: "/inicio/financeiro", icon: "$" },
   { nome: "Serviços", href: "/inicio/servicos", icon: "✦" },
   { nome: "Perfil", href: "/inicio/perfil", icon: "◎" },
   { nome: "Integrações", href: "/inicio/integracoes", icon: "G" },

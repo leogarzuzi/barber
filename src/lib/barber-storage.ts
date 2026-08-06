@@ -25,6 +25,8 @@ export type Cliente = {
   nome: string;
   whatsapp: string;
   email?: string;
+  mensalista: boolean;
+  mensalidade: number;
   criadoEm: string;
   atualizadoEm: string;
 };
@@ -48,6 +50,7 @@ export type Agendamento = {
   cliente: string;
   servico: string;
   valor: number;
+  cobertoPorMensalidade?: boolean;
   whatsapp: string;
   duracaoMinutos?: number;
   codigo?: string;
@@ -144,7 +147,7 @@ export function cadastrarOuAtualizarCliente(nome: string, whatsapp: string) {
     return atualizado;
   }
 
-  const novo: Cliente = { id: crypto.randomUUID(), nome: nome.trim(), whatsapp: numero, criadoEm: agora, atualizadoEm: agora };
+  const novo: Cliente = { id: crypto.randomUUID(), nome: nome.trim(), whatsapp: numero, mensalista: false, mensalidade: 160, criadoEm: agora, atualizadoEm: agora };
   salvarClientes([novo, ...clientes]);
   return novo;
 }
