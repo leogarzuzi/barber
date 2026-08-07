@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import NoticeDialog from "@/components/NoticeDialog";
 import { criarClienteSupabase } from "@/lib/supabase/client";
 
@@ -13,6 +14,29 @@ export default function LoginPage() {
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [entrando, setEntrando] = useState(false);
   const [erro, setErro] = useState("");
+  const [fotoBarbearia, setFotoBarbearia] = useState("");
+
+  useEffect(() => {
+    const controle = new AbortController();
+
+    async function carregarFoto() {
+      try {
+        const resposta = await fetch("/api/public/configuracao", {
+          cache: "no-store",
+          signal: controle.signal,
+        });
+        if (!resposta.ok) return;
+
+        const dados = await resposta.json() as { perfil?: { foto?: string } };
+        setFotoBarbearia(dados.perfil?.foto ?? "");
+      } catch {
+        // O texto PH continua como alternativa se a foto estiver indisponivel.
+      }
+    }
+
+    void carregarFoto();
+    return () => controle.abort();
+  }, []);
 
   async function entrar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,8 +63,20 @@ export default function LoginPage() {
     <main className="flex min-h-[100dvh] items-center justify-center bg-[#211f1c] px-4 py-8 text-[#f3ead8]">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-[#d8c29e]/50 bg-[#2c2824] text-lg font-black text-[#d8c29e]">PH</div>
-          <p className="display-font mt-4 text-3xl">PH10 Barber</p>
+          <div className="relative mx-auto grid h-20 w-20 place-items-center overflow-hidden rounded-full border border-[#d8c29e]/50 bg-[#2c2824] text-lg font-black text-[#d8c29e]">
+            {fotoBarbearia ? (
+              <Image
+                src={fotoBarbearia}
+                alt="Foto da PH10 Barber"
+                fill
+                priority
+                unoptimized
+                sizes="80px"
+                className="object-cover"
+              />
+            ) : "PH"}
+          </div>
+          <p className="display-font mt-4 text-3xl">PH10 Barbearia</p>
         </div>
 
         <form onSubmit={entrar} className="rounded-[2rem] border border-[#eee2c9]/10 bg-[#2c2824] p-5 shadow-2xl sm:p-7">

@@ -195,7 +195,7 @@ export default function AgendaPage() {
   const [configAgenda, setConfigAgenda] =
     useState<ConfigAgenda>(configAgendaInicial);
 
-  const dias = proximosDias(7);
+  const dias = proximosDias(30);
 
 
   useEffect(() => {
