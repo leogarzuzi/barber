@@ -5,6 +5,19 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "PH10 Barbearia",
   description: "Gestão e agendamento da Barbearia PH10",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/icons/favicon-48.png?v=2", type: "image/png", sizes: "48x48" },
+      { url: "/icons/icon-192.png?v=2", type: "image/png", sizes: "192x192" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png?v=2", sizes: "180x180", type: "image/png" }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "PH10",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export const viewport: Viewport = {
