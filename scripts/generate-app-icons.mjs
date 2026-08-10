@@ -1,16 +1,17 @@
 import sharp from "sharp";
 import { writeFile } from "node:fs/promises";
 
-const origem = "public/brand/ph10-app-icon-source.png";
+const origemApp = "public/brand/ph10-app-icon-source.png";
+const origemSite = "public/brand/ph10-site-icon-source.png";
 
 await Promise.all([
-  sharp(origem).resize(48, 48).png().toFile("public/icons/favicon-48.png"),
-  sharp(origem).resize(180, 180).png().toFile("public/icons/apple-touch-icon.png"),
-  sharp(origem).resize(192, 192).png().toFile("public/icons/icon-192.png"),
-  sharp(origem).resize(512, 512).png().toFile("public/icons/icon-512.png"),
+  sharp(origemSite).resize(48, 48).png().toFile("public/icons/favicon-48.png"),
+  sharp(origemApp).resize(180, 180).png().toFile("public/icons/apple-touch-icon.png"),
+  sharp(origemApp).resize(192, 192).png().toFile("public/icons/icon-192.png"),
+  sharp(origemApp).resize(512, 512).png().toFile("public/icons/icon-512.png"),
 ]);
 
-const imagemComMargem = await sharp(origem).resize(410, 410).png().toBuffer();
+const imagemComMargem = await sharp(origemApp).resize(410, 410).png().toBuffer();
 
 await sharp({
   create: {
@@ -24,7 +25,7 @@ await sharp({
   .png()
   .toFile("public/icons/icon-maskable-512.png");
 
-const faviconPng = await sharp(origem).resize(48, 48).png().toBuffer();
+const faviconPng = await sharp(origemSite).resize(48, 48).png().toBuffer();
 const cabecalhoIco = Buffer.alloc(22);
 cabecalhoIco.writeUInt16LE(0, 0);
 cabecalhoIco.writeUInt16LE(1, 2);
