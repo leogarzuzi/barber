@@ -74,13 +74,22 @@ export default function IntegracoesPage() {
       const dados = await resposta.json() as {
         sincronizados: number;
         falhas: number;
+        pendentes: number;
+        reconexaoNecessaria: boolean;
         resumo: ResumoGoogle;
       };
       setResumo(dados.resumo);
+      if (dados.reconexaoNecessaria) {
+        setAviso({
+          titulo: "Reconecte o Google Agenda",
+          descricao: "O Google encerrou a autorização desta conta. Conecte-a novamente para retomar a sincronização automática.",
+        });
+        return;
+      }
       setAviso({
-        titulo: dados.falhas ? "Sincronização parcial" : "Agenda sincronizada",
-        descricao: dados.falhas
-          ? `${dados.falhas} reserva(s) ainda precisam de uma nova tentativa.`
+        titulo: dados.falhas || dados.pendentes ? "Sincronização parcial" : "Agenda sincronizada",
+        descricao: dados.falhas || dados.pendentes
+          ? `${dados.falhas + dados.pendentes} reserva(s) ainda precisam de uma nova tentativa.`
           : `${dados.sincronizados} reserva(s) futura(s) foram conferidas no Google Agenda.`,
       });
     } catch {

@@ -268,11 +268,19 @@ export async function sincronizarAgendamentoGoogle(
     return { status: "sincronizado" };
   } catch (erro) {
     const mensagem = erro instanceof Error ? erro.message.slice(0, 500) : "Erro desconhecido";
+    const credencialExpirada = mensagem.includes('"error": "invalid_grant"');
+
+    if (credencialExpirada) {
+      await supabase
+        .from("google_calendar_conexoes")
+        .update({ conectado: false })
+        .eq("id", 1);
+    }
     await supabase
       .from("agendamentos")
       .update({ google_sync_status: "erro", google_sync_error: mensagem })
       .eq("id", agendamento.id);
-    return { status: "erro", erro: mensagem };
+    return { status: "erro", erro: mensagem, reconexaoNecessaria: credencialExpirada };
   }
 }
 

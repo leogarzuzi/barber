@@ -27,16 +27,15 @@ const DUAS_HORAS = 2 * 60 * 60 * 1000;
 
 function minutos(hora: string) { const [h, m] = hora.split(":").map(Number); return h * 60 + m; }
 function horaFormatada(total: number) { return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`; }
-function codigoComparavel(codigo: string) { return codigo.toUpperCase().replace(/[^A-Z0-9]/g, ""); }
 function somenteDigitos(valor: string) { return valor.replace(/\D/g, "").slice(0, 9); }
 function formatarData(data: string) { return data.split("-").reverse().join("/"); }
 function dinheiro(valor: number) { return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 
 export default function ClientReservationLookup({ agendamentos, bloqueios, configuracao, whatsappPH10, onAtualizar }: Props) {
   const [aberto, setAberto] = useState(false);
-  const [codigo, setCodigo] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [erro, setErro] = useState("");
+  const [reservasEncontradas, setReservasEncontradas] = useState<Agendamento[] | null>(null);
   const [reserva, setReserva] = useState<Agendamento | null>(null);
   const [modoRemarcar, setModoRemarcar] = useState(false);
   const [novaData, setNovaData] = useState("");
@@ -64,6 +63,21 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const dentroDoPrazo = Boolean(reserva && status === "Agendado" && inicioReserva - relogio >= DUAS_HORAS);
   const janelaPadrao = Number(configuracao?.configAgenda.diasParaAgendar ?? 7);
   const dias = proximosDias(reserva?.cobertoPorMensalidade ? Math.max(20, janelaPadrao) : janelaPadrao);
+  const { proximasReservas, historicoReservas } = useMemo(() => {
+    const lista = (reservasEncontradas ?? []).map((item) => ({
+      item,
+      status: obterStatusAtendimento(item, relogio),
+      instante: new Date(`${item.data}T${item.hora}:00`).getTime(),
+    }));
+    return {
+      proximasReservas: lista
+        .filter((entrada) => entrada.status === "Agendado")
+        .sort((a, b) => a.instante - b.instante),
+      historicoReservas: lista
+        .filter((entrada) => entrada.status !== "Agendado")
+        .sort((a, b) => b.instante - a.instante),
+    };
+  }, [reservasEncontradas, relogio]);
 
   const horariosRemarcacao = useMemo(() => {
     if (!reserva || !configuracao || !novaData) return [];
@@ -95,9 +109,9 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   function fechar() {
     if (consultandoRef.current) return;
     setAberto(false);
-    setCodigo("");
     setWhatsapp("");
     setErro("");
+    setReservasEncontradas(null);
     setReserva(null);
     setModoRemarcar(false);
     setNovaData("");
@@ -108,9 +122,8 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   async function buscarReserva() {
     if (consultandoRef.current) return;
 
-    const codigoNormalizado = codigoComparavel(codigo);
-    if (codigoNormalizado.length < 10 || !/^9\d{8}$/.test(whatsapp)) {
-      setErro("Informe o código completo e os 9 dígitos do WhatsApp.");
+    if (!/^9\d{8}$/.test(whatsapp)) {
+      setErro("Informe os 9 dígitos do WhatsApp, começando pelo 9.");
       return;
     }
     const numero = normalizarWhatsapp(`5521${whatsapp}`);
@@ -119,13 +132,14 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     setErro("");
 
     try {
-      const resposta = await fetch(`/api/public/reservas?codigo=${encodeURIComponent(codigo.toUpperCase())}&whatsapp=${numero}`, { cache: "no-store" });
-      const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
-      if (!resposta.ok || !resultado.reserva) {
-        setErro(resultado.erro ?? "Não encontramos uma reserva com esses dados.");
+      const resposta = await fetch(`/api/public/reservas?whatsapp=${numero}`, { cache: "no-store" });
+      const resultado = await resposta.json() as { reservas?: Agendamento[]; erro?: string };
+      if (!resposta.ok || !resultado.reservas?.length) {
+        setErro(resultado.erro ?? "Não encontramos reservas para este WhatsApp.");
         return;
       }
-      setReserva(resultado.reserva);
+      setReservasEncontradas(resultado.reservas);
+      setReserva(null);
       setErro("");
     } catch {
       setErro("A conexão falhou durante a consulta. Confira sua internet e tente novamente.");
@@ -150,6 +164,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     const atualizada = resultado.reserva;
     const foiCancelada = confirmacao === "cancelar";
     const novaLista = agendamentos.map((item) => item.id === reserva.id ? atualizada : item);
+    setReservasEncontradas((lista) => lista?.map((item) => item.id === reserva.id ? atualizada : item) ?? null);
     onAtualizar(novaLista);
     setRelogio(Date.now());
     fechar();
@@ -173,17 +188,46 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     <div onClick={fechar} className="safe-modal-shell fixed inset-0 z-[320] flex items-center justify-center bg-black/75 backdrop-blur-sm">
       <div role="dialog" aria-modal="true" aria-labelledby="consulta-reserva-titulo" onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-md rounded-[2rem] border border-white/10 bg-neutral-900 p-5 text-white shadow-2xl">
         <div className="flex items-start justify-between gap-4">
-          <div><p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Área do cliente</p><h2 id="consulta-reserva-titulo" className="mt-1 text-2xl font-black">Minha reserva</h2></div>
+          <div><p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Área do cliente</p><h2 id="consulta-reserva-titulo" className="mt-1 text-2xl font-black">Minhas reservas</h2></div>
           <button type="button" onClick={fechar} aria-label="Fechar" className="rounded-full bg-white/10 px-3 py-2 text-sm font-black">×</button>
         </div>
 
-        {!reserva ? (
+        {reservasEncontradas === null ? (
           <div className="mt-5">
-            <p className="text-sm leading-relaxed text-neutral-400">Use o protocolo e o mesmo WhatsApp informado no agendamento.</p>
-            <label className="mt-4 block"><span className="text-xs font-bold text-neutral-400">Código da reserva</span><input value={codigo} onChange={(event) => setCodigo(event.target.value.toUpperCase().slice(0, 11))} placeholder="PH10-XXXXXX" autoCapitalize="characters" spellCheck={false} className="mt-2 w-full rounded-2xl bg-neutral-950 px-4 py-4 font-mono text-base uppercase outline-none focus:ring-2 focus:ring-amber-400" /></label>
-            <label className="mt-3 block"><span className="text-xs font-bold text-neutral-400">WhatsApp</span><div className="mt-2 flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400"><span className="flex items-center border-r border-white/10 px-4 text-sm font-black text-amber-400">+55 21</span><input value={whatsapp} onChange={(event) => setWhatsapp(somenteDigitos(event.target.value))} placeholder="9 0000-0000" inputMode="numeric" maxLength={9} className="min-w-0 flex-1 bg-transparent px-4 py-4 text-sm outline-none" /></div></label>
+            <p className="text-sm leading-relaxed text-neutral-400">Informe o mesmo WhatsApp usado nos agendamentos.</p>
+            <label className="mt-4 block"><span className="text-xs font-bold text-neutral-400">WhatsApp</span><div className="mt-2 flex overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400"><span className="flex items-center border-r border-white/10 px-4 text-sm font-black text-amber-400">+55 21</span><input value={whatsapp} onChange={(event) => setWhatsapp(somenteDigitos(event.target.value))} placeholder="9 0000-0000" inputMode="numeric" autoComplete="tel" maxLength={9} className="min-w-0 flex-1 bg-transparent px-4 py-4 text-sm outline-none" /></div></label>
             {erro && <p className="mt-3 rounded-2xl bg-red-500/10 p-3 text-sm text-red-200">{erro}</p>}
-            <button type="button" onClick={buscarReserva} disabled={consultando} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-70">{consultando ? "Consultando..." : "Consultar reserva"}</button>
+            <button type="button" onClick={buscarReserva} disabled={consultando} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-70">{consultando ? "Consultando..." : "Consultar reservas"}</button>
+          </div>
+        ) : !reserva ? (
+          <div className="mt-5 max-h-[65dvh] space-y-5 overflow-y-auto pr-1">
+            {proximasReservas.length > 0 && (
+              <section>
+                <p className="text-xs font-black uppercase tracking-[.16em] text-amber-400">Próximas reservas</p>
+                <div className="mt-3 space-y-2">
+                  {proximasReservas.map(({ item, status: statusItem }) => (
+                    <button key={item.id} type="button" onClick={() => setReserva(item)} className="w-full rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4 text-left">
+                      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-black">{item.servico}</p><p className="mt-1 text-sm text-neutral-400">{formatarData(item.data)} às {item.hora}</p></div><span className="shrink-0 rounded-full bg-amber-400/10 px-3 py-1 text-[10px] font-black text-amber-300">{statusItem}</span></div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {historicoReservas.length > 0 && (
+              <section>
+                <p className="text-xs font-black uppercase tracking-[.16em] text-neutral-500">Histórico recente</p>
+                <div className="mt-3 space-y-2">
+                  {historicoReservas.map(({ item, status: statusItem }) => (
+                    <button key={item.id} type="button" onClick={() => setReserva(item)} className="w-full rounded-2xl bg-neutral-950 p-4 text-left">
+                      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-black text-neutral-200">{item.servico}</p><p className="mt-1 text-sm text-neutral-500">{formatarData(item.data)} às {item.hora}</p></div><span className="shrink-0 rounded-full bg-white/5 px-3 py-1 text-[10px] font-black text-neutral-400">{statusItem}</span></div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <button type="button" onClick={() => { setReservasEncontradas(null); setWhatsapp(""); setErro(""); }} className="w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Consultar outro WhatsApp</button>
           </div>
         ) : (
           <div className="mt-5">
@@ -205,7 +249,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
               </div>
             )}
 
-            <button type="button" onClick={() => { setReserva(null); setCodigo(""); setWhatsapp(""); setModoRemarcar(false); }} className="mt-4 w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Consultar outra reserva</button>
+            <button type="button" onClick={() => { setReserva(null); setModoRemarcar(false); setNovaData(""); setNovoHorario(""); }} className="mt-4 w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Voltar às minhas reservas</button>
           </div>
         )}
       </div>
@@ -217,11 +261,11 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
       )}
 
       {consultando && (
-        <div onClick={(event) => event.stopPropagation()} className="safe-modal-shell fixed inset-0 z-[360] flex items-center justify-center bg-black/70 backdrop-blur-md" role="status" aria-live="assertive" aria-label="Consultando sua reserva">
+        <div onClick={(event) => event.stopPropagation()} className="safe-modal-shell fixed inset-0 z-[360] flex items-center justify-center bg-black/70 backdrop-blur-md" role="status" aria-live="assertive" aria-label="Consultando suas reservas">
           <div className="flex w-full max-w-xs flex-col items-center rounded-[2rem] border border-white/10 bg-neutral-900/95 px-6 py-8 text-center text-white shadow-2xl">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-400/20 border-t-amber-400" aria-hidden="true" />
             <p className="mt-5 text-xl font-black">Consultando...</p>
-            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Estamos procurando sua reserva. Aguarde um instante.</p>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Estamos procurando suas reservas. Aguarde um instante.</p>
           </div>
         </div>
       )}
@@ -230,7 +274,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
 
   return (
     <>
-      <button type="button" onClick={() => setAberto(true)} className="mt-4 flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-xs font-black text-neutral-200 sm:w-auto">Consultar minha reserva</button>
+      <button type="button" onClick={() => setAberto(true)} className="mt-4 flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-xs font-black text-neutral-200 sm:w-auto">Consultar minhas reservas</button>
       {modal && createPortal(modal, document.body)}
       {avisoSucesso && createPortal(
         <NoticeDialog

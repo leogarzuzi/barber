@@ -10,7 +10,21 @@ import { gerarProtocolo } from "@/lib/protocolo.mjs";
 
 const idsDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
 function minutos(hora: string) { const [h, m] = hora.split(":").map(Number); return h * 60 + m; }
-function respostaReserva(item: Awaited<ReturnType<typeof buscarAgendamentos>>[number]) { return item; }
+function respostaReserva(item: Awaited<ReturnType<typeof buscarAgendamentos>>[number]) {
+  return {
+    id: item.id,
+    codigo: item.codigo,
+    cliente: item.cliente,
+    whatsapp: item.whatsapp,
+    servico: item.servico,
+    data: item.data,
+    hora: item.hora,
+    duracaoMinutos: item.duracaoMinutos,
+    valor: item.valor,
+    cobertoPorMensalidade: item.cobertoPorMensalidade,
+    statusManual: item.statusManual,
+  };
+}
 async function tentarSincronizar(supabase: ReturnType<typeof criarClienteSupabaseAdmin>, id: string) {
   try {
     await sincronizarAgendamentoGoogle(supabase, id);
@@ -25,23 +39,27 @@ export async function GET(request: NextRequest) {
   const chaveGeral = chaveRateLimit("consulta-geral", ip);
   const geral = await consumirRateLimit(supabase, chaveGeral, { limite: 30, janelaSegundos: 60, bloqueioSegundos: 300 });
   if (!geral.permitido) return respostaBloqueada(geral.tentar_em);
-  const codigo = request.nextUrl.searchParams.get("codigo")?.toUpperCase();
   const whatsapp = request.nextUrl.searchParams.get("whatsapp")?.replace(/\D/g, "");
   const chaveFalhas = chaveRateLimit("consulta-falhas", ip);
-  if (!codigo || !whatsapp) {
+  if (!whatsapp || !/^55219\d{8}$/.test(whatsapp)) {
     const falha = await consumirRateLimit(supabase, chaveFalhas, { limite: 5, janelaSegundos: 900, bloqueioSegundos: 1800 });
     if (!falha.permitido) return respostaBloqueada(falha.tentar_em);
-    return NextResponse.json({ erro: "Não encontramos uma reserva com esses dados." }, { status: 404 });
+    return NextResponse.json({ erro: "Não encontramos reservas para este WhatsApp." }, { status: 404 });
   }
+  const limiteTelefone = await consumirRateLimit(supabase, chaveRateLimit("consulta-reservas-whatsapp", whatsapp), { limite: 10, janelaSegundos: 900, bloqueioSegundos: 1800 });
+  if (!limiteTelefone.permitido) return respostaBloqueada(limiteTelefone.tentar_em);
   const reservas = await buscarAgendamentos(supabase);
-  const reserva = reservas.find((item) => item.codigo === codigo && item.whatsapp === whatsapp);
-  if (!reserva) {
+  const reservasDoCliente = reservas
+    .filter((item) => item.whatsapp === whatsapp)
+    .slice(0, 20)
+    .map(respostaReserva);
+  if (reservasDoCliente.length === 0) {
     const falha = await consumirRateLimit(supabase, chaveFalhas, { limite: 5, janelaSegundos: 900, bloqueioSegundos: 1800 });
     if (!falha.permitido) return respostaBloqueada(falha.tentar_em);
-    return NextResponse.json({ erro: "Não encontramos uma reserva com esses dados." }, { status: 404 });
+    return NextResponse.json({ erro: "Não encontramos reservas para este WhatsApp." }, { status: 404 });
   }
   await limparRateLimit(supabase, chaveFalhas);
-  return NextResponse.json({ reserva: respostaReserva(reserva) });
+  return NextResponse.json({ reservas: reservasDoCliente });
 }
 
 export async function POST(request: NextRequest) {

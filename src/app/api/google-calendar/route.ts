@@ -35,9 +35,14 @@ export async function POST(request: NextRequest) {
     const supabase = criarClienteSupabaseAdmin();
     const resultados = await sincronizarReservasFuturas(supabase);
     const falhas = resultados.filter((item) => item.status === "erro").length;
+    const pendentes = resultados.filter((item) => item.status === "pendente").length;
     return NextResponse.json({
-      sincronizados: resultados.length - falhas,
+      sincronizados: resultados.filter((item) => item.status === "sincronizado").length,
       falhas,
+      pendentes,
+      reconexaoNecessaria: resultados.some(
+        (item) => "reconexaoNecessaria" in item && item.reconexaoNecessaria,
+      ),
       resumo: await resumoGoogleCalendar(supabase),
     });
   } catch {
