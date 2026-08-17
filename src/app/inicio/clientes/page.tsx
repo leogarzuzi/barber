@@ -36,6 +36,7 @@ export default function ClientesPage() {
   const [agora, setAgora] = useState(0);
   const [clienteHistorico, setClienteHistorico] = useState<ClienteResumo | null>(null);
   const [busca, setBusca] = useState("");
+  const [somenteMensalistas, setSomenteMensalistas] = useState(false);
   const [clienteMensalista, setClienteMensalista] = useState<ClienteResumo | null>(null);
   const [processando, setProcessando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; descricao: string } | null>(null);
@@ -92,10 +93,13 @@ export default function ClientesPage() {
   const clientesFiltrados = useMemo(() => {
     const termo = busca.trim().toLocaleLowerCase("pt-BR");
     const numeros = busca.replace(/\D/g, "");
-    if (!termo) return clientes;
-    return clientes.filter((cliente) => cliente.nome.toLocaleLowerCase("pt-BR").includes(termo)
-      || (numeros && normalizarWhatsapp(cliente.whatsapp).includes(numeros)));
-  }, [clientes, busca]);
+    return clientes.filter((cliente) => {
+      if (somenteMensalistas && !cliente.mensalista) return false;
+      if (!termo) return true;
+      return cliente.nome.toLocaleLowerCase("pt-BR").includes(termo)
+        || Boolean(numeros && normalizarWhatsapp(cliente.whatsapp).includes(numeros));
+    });
+  }, [clientes, busca, somenteMensalistas]);
 
   async function alternarMensalista() {
     if (!clienteMensalista || processando) return;
@@ -132,14 +136,19 @@ export default function ClientesPage() {
         </header>
 
         <section className="mt-5 rounded-[1.75rem] bg-neutral-900 p-4">
-          <label className="block"><span className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Pesquisar</span><div className="mt-3 flex items-center gap-3 rounded-2xl bg-neutral-950 px-4 focus-within:ring-2 focus-within:ring-amber-400"><svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 shrink-0 text-neutral-500" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Nome ou WhatsApp" inputMode="search" className="min-w-0 flex-1 bg-transparent py-4 text-base outline-none" /></div></label>
+          <span className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Pesquisar</span>
+          <div className="mt-3 flex items-stretch gap-2">
+            <label className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl bg-neutral-950 px-4 focus-within:ring-2 focus-within:ring-amber-400"><span className="sr-only">Pesquisar por nome ou WhatsApp</span><svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 shrink-0 text-neutral-500" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Nome ou WhatsApp" inputMode="search" className="min-w-0 flex-1 bg-transparent py-4 text-base outline-none" /></label>
+            <button type="button" onClick={() => setSomenteMensalistas((ativo) => !ativo)} aria-pressed={somenteMensalistas} aria-label={somenteMensalistas ? "Mostrar todos os clientes" : "Mostrar somente mensalistas"} title={somenteMensalistas ? "Exibindo mensalistas" : "Filtrar mensalistas"} className={`grid w-14 shrink-0 place-items-center rounded-2xl border text-sm font-black transition-colors ${somenteMensalistas ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-950 text-amber-300 hover:border-amber-400/50"}`}>M</button>
+          </div>
+          {somenteMensalistas && <p className="mt-3 text-xs font-bold text-amber-300">Filtro de mensalistas ativo</p>}
         </section>
 
         <section className="mt-5 space-y-3">
           {clientes.length === 0 ? (
             <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-neutral-900 p-6 text-center"><p className="text-lg font-black">Nenhum cliente cadastrado</p><p className="mt-2 text-sm text-neutral-400">O primeiro cadastro será criado automaticamente quando alguém reservar.</p></div>
           ) : clientesFiltrados.length === 0 ? (
-            <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-neutral-900 p-6 text-center"><p className="text-lg font-black">Nenhum cliente encontrado</p><p className="mt-2 text-sm text-neutral-400">Confira o nome ou o WhatsApp pesquisado.</p></div>
+            <div className="rounded-[1.75rem] border border-dashed border-white/10 bg-neutral-900 p-6 text-center"><p className="text-lg font-black">{somenteMensalistas ? "Nenhum mensalista encontrado" : "Nenhum cliente encontrado"}</p><p className="mt-2 text-sm text-neutral-400">{somenteMensalistas && !busca.trim() ? "Ainda não há clientes com plano mensal ativo." : "Confira o nome ou o WhatsApp pesquisado."}</p></div>
           ) : clientesFiltrados.map((cliente) => (
             <article key={cliente.id} className="rounded-[1.75rem] bg-neutral-900 p-4">
               <div className="flex items-start justify-between gap-4">
