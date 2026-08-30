@@ -34,6 +34,27 @@ export function validarLimiteReservasCliente({ mensalista, datasAtivas, novaData
   return null;
 }
 
+/**
+ * @param {{
+ *   reserva?: { data: string, hora: string, statusManual?: string } | null,
+ *   acao: "cancelar" | "remarcar",
+ *   dataNova?: string,
+ *   horaNova?: string,
+ *   agora: number,
+ *   antecedenciaMinimaMs?: number,
+ * }} dados
+ * @returns {"alteracao-nao-permitida" | "novo-horario-invalido" | "mesmo-horario" | null}
+ */
+export function validarAlteracaoReservaCliente({ reserva, acao, dataNova, horaNova, agora, antecedenciaMinimaMs = 2 * 3600000 }) {
+  if (!reserva?.data || !reserva?.hora || reserva.statusManual) return "alteracao-nao-permitida";
+  if (new Date(`${reserva.data}T${reserva.hora}:00-03:00`).getTime() - agora < antecedenciaMinimaMs) return "alteracao-nao-permitida";
+  if (acao === "remarcar") {
+    if (!dataNova || !horaNova) return "novo-horario-invalido";
+    if (reserva.data === dataNova && reserva.hora === horaNova) return "mesmo-horario";
+  }
+  return null;
+}
+
 /** @param {string} hora */
 function minutos(hora) {
   const [horas, minutosHora] = hora.split(":").map(Number);

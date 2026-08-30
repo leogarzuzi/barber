@@ -43,8 +43,10 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const [confirmacao, setConfirmacao] = useState<"cancelar" | "remarcar" | null>(null);
   const [avisoSucesso, setAvisoSucesso] = useState<{ titulo: string; descricao: string } | null>(null);
   const [consultando, setConsultando] = useState(false);
+  const [processandoConfirmacao, setProcessandoConfirmacao] = useState(false);
   const [relogio, setRelogio] = useState(() => Date.now());
   const consultandoRef = useRef(false);
+  const processandoConfirmacaoRef = useRef(false);
 
   useEffect(() => {
     const intervalo = window.setInterval(() => setRelogio(Date.now()), 60_000);
@@ -107,7 +109,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   }, [reserva, configuracao, novaData, relogio, bloqueios, agendamentos]);
 
   function fechar() {
-    if (consultandoRef.current) return;
+    if (consultandoRef.current || processandoConfirmacaoRef.current) return;
     setAberto(false);
     setWhatsapp("");
     setErro("");
@@ -117,6 +119,8 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     setNovaData("");
     setNovoHorario("");
     setConfirmacao(null);
+    setProcessandoConfirmacao(false);
+    processandoConfirmacaoRef.current = false;
   }
 
   async function buscarReserva() {
@@ -150,6 +154,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   }
 
   async function executarConfirmacao() {
+    if (processandoConfirmacaoRef.current) return;
     if (!reserva || !confirmacao) return;
     if (new Date(`${reserva.data}T${reserva.hora}:00`).getTime() - Date.now() < DUAS_HORAS) {
       setConfirmacao(null);
@@ -158,22 +163,31 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     }
 
     if (confirmacao === "remarcar" && (!novaData || !novoHorario)) return;
-    const resposta = await fetch("/api/public/reservas", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ codigo: reserva.codigo, whatsapp: reserva.whatsapp, acao: confirmacao, data: novaData, hora: novoHorario }) });
-    const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
-    if (!resposta.ok || !resultado.reserva) { setConfirmacao(null); setErro(resultado.erro ?? "Não foi possível alterar a reserva."); return; }
-    const atualizada = resultado.reserva;
-    const foiCancelada = confirmacao === "cancelar";
-    const novaLista = agendamentos.map((item) => item.id === reserva.id ? atualizada : item);
-    setReservasEncontradas((lista) => lista?.map((item) => item.id === reserva.id ? atualizada : item) ?? null);
-    onAtualizar(novaLista);
-    setRelogio(Date.now());
-    fechar();
-    setAvisoSucesso({
-      titulo: foiCancelada ? "Reserva cancelada" : "Reserva remarcada",
-      descricao: foiCancelada
-        ? "Sua reserva foi cancelada e o horário já está disponível novamente."
-        : `Sua reserva foi remarcada para ${formatarData(atualizada.data)} às ${atualizada.hora}.`,
-    });
+    processandoConfirmacaoRef.current = true;
+    setProcessandoConfirmacao(true);
+    try {
+      const resposta = await fetch("/api/public/reservas", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ codigo: reserva.codigo, whatsapp: reserva.whatsapp, acao: confirmacao, data: novaData, hora: novoHorario }) });
+      const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
+      if (!resposta.ok || !resultado.reserva) { setConfirmacao(null); setErro(resultado.erro ?? "Não foi possível alterar a reserva."); return; }
+      const atualizada = resultado.reserva;
+      const foiCancelada = confirmacao === "cancelar";
+      const novaLista = agendamentos.map((item) => item.id === reserva.id ? atualizada : item);
+      setReservasEncontradas((lista) => lista?.map((item) => item.id === reserva.id ? atualizada : item) ?? null);
+      onAtualizar(novaLista);
+      setRelogio(Date.now());
+      processandoConfirmacaoRef.current = false;
+      setProcessandoConfirmacao(false);
+      fechar();
+      setAvisoSucesso({
+        titulo: foiCancelada ? "Reserva cancelada" : "Reserva remarcada",
+        descricao: foiCancelada
+          ? "Sua reserva foi cancelada e o horário já está disponível novamente."
+          : `Sua reserva foi remarcada para ${formatarData(atualizada.data)} às ${atualizada.hora}.`,
+      });
+    } finally {
+      processandoConfirmacaoRef.current = false;
+      setProcessandoConfirmacao(false);
+    }
   }
 
   function linkContatoPrazo() {
@@ -256,7 +270,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
 
       {confirmacao && reserva && (
         <div onClick={() => setConfirmacao(null)} className="fixed inset-0 z-[340] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center text-white shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-400/10 text-2xl font-black text-amber-400">!</div><h2 className="mt-4 text-2xl font-black">{confirmacao === "cancelar" ? "Cancelar reserva?" : "Confirmar remarcação?"}</h2><p className="mt-2 text-sm leading-relaxed text-neutral-400">{confirmacao === "cancelar" ? `O horário de ${formatarData(reserva.data)} às ${reserva.hora} será liberado.` : `Sua reserva será alterada para ${formatarData(novaData)} às ${novoHorario}.`}</p><div className="mt-6 grid grid-cols-2 gap-3"><button type="button" onClick={() => setConfirmacao(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black">Voltar</button><button type="button" onClick={executarConfirmacao} className={`rounded-2xl px-4 py-4 text-sm font-black ${confirmacao === "cancelar" ? "bg-red-500 text-white" : "bg-amber-400 text-neutral-950"}`}>Confirmar</button></div></div>
+          <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center text-white shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-400/10 text-2xl font-black text-amber-400">!</div><h2 className="mt-4 text-2xl font-black">{confirmacao === "cancelar" ? "Cancelar reserva?" : "Confirmar remarcação?"}</h2><p className="mt-2 text-sm leading-relaxed text-neutral-400">{confirmacao === "cancelar" ? `O horário de ${formatarData(reserva.data)} às ${reserva.hora} será liberado.` : `Sua reserva será alterada para ${formatarData(novaData)} às ${novoHorario}.`}</p><div className="mt-6 grid grid-cols-2 gap-3"><button type="button" onClick={() => setConfirmacao(null)} disabled={processandoConfirmacao} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:cursor-wait disabled:opacity-50">Voltar</button><button type="button" onClick={executarConfirmacao} disabled={processandoConfirmacao} className={`rounded-2xl px-4 py-4 text-sm font-black disabled:cursor-wait disabled:opacity-70 ${confirmacao === "cancelar" ? "bg-red-500 text-white" : "bg-amber-400 text-neutral-950"}`}>{processandoConfirmacao ? "Processando..." : "Confirmar"}</button></div></div>
         </div>
       )}
 

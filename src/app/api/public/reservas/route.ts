@@ -3,7 +3,7 @@ import { criarClienteSupabaseAdmin } from "@/lib/supabase/admin";
 import { buscarCatalogo } from "@/lib/supabase/catalogo";
 import { buscarConfiguracao, agendaDoBanco } from "@/lib/supabase/configuracoes";
 import { buscarAgendamentos, buscarBloqueios } from "@/lib/supabase/agenda";
-import { intervalosSeSobrepoem, validarLimiteReservasCliente } from "@/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, validarAlteracaoReservaCliente, validarLimiteReservasCliente } from "@/lib/agenda-rules.mjs";
 import { chaveRateLimit, consumirRateLimit, ipDaRequisicao, limparRateLimit, respostaBloqueada } from "@/lib/supabase/rate-limit";
 import { sincronizarAgendamentoGoogle } from "@/lib/google-calendar/sync";
 import { gerarProtocolo } from "@/lib/protocolo.mjs";
@@ -132,25 +132,42 @@ export async function PATCH(request: NextRequest) {
     if (corpo.acao !== "cancelar" && corpo.acao !== "remarcar") {
       return NextResponse.json({ erro: "Ação inválida." }, { status: 400 });
     }
+    const codigo = corpo.codigo?.trim().toUpperCase();
+    const whatsapp = corpo.whatsapp?.replace(/\D/g, "");
+    if (!/^PH10-[A-Z0-9]{6}$/.test(codigo ?? "") || !/^55219\d{8}$/.test(whatsapp ?? "")) {
+      return NextResponse.json({ erro: "Dados da reserva inválidos." }, { status: 400 });
+    }
     const supabase = criarClienteSupabaseAdmin();
-    const limite = await consumirRateLimit(supabase, chaveRateLimit("alterar-reserva-ip", ipDaRequisicao(request)), { limite: 10, janelaSegundos: 600, bloqueioSegundos: 900 });
-    if (!limite.permitido) return respostaBloqueada(limite.tentar_em);
+    const [limiteIp, limiteWhatsapp, limiteCodigo] = await Promise.all([
+      consumirRateLimit(supabase, chaveRateLimit("alterar-reserva-ip", ipDaRequisicao(request)), { limite: 10, janelaSegundos: 600, bloqueioSegundos: 900 }),
+      consumirRateLimit(supabase, chaveRateLimit("alterar-reserva-whatsapp", whatsapp), { limite: 6, janelaSegundos: 600, bloqueioSegundos: 900 }),
+      consumirRateLimit(supabase, chaveRateLimit("alterar-reserva-codigo", codigo), { limite: 4, janelaSegundos: 600, bloqueioSegundos: 900 }),
+    ]);
+    if (!limiteIp.permitido) return respostaBloqueada(limiteIp.tentar_em);
+    if (!limiteWhatsapp.permitido) return respostaBloqueada(limiteWhatsapp.tentar_em);
+    if (!limiteCodigo.permitido) return respostaBloqueada(limiteCodigo.tentar_em);
     const reservas = await buscarAgendamentos(supabase);
-    const reserva = reservas.find((x) => x.codigo === corpo.codigo && x.whatsapp === corpo.whatsapp);
-    if (!reserva || new Date(`${reserva.data}T${reserva.hora}:00-03:00`).getTime() - Date.now() < 2 * 3600000) return NextResponse.json({ erro: "Alteração não permitida." }, { status: 409 });
+    const reserva = reservas.find((x) => x.codigo === codigo && x.whatsapp === whatsapp);
+    if (!reserva) return NextResponse.json({ erro: "Alteração não permitida." }, { status: 409 });
+    const erroAlteracao = validarAlteracaoReservaCliente({ reserva, acao: corpo.acao, dataNova: corpo.data, horaNova: corpo.hora, agora: Date.now() });
+    if (erroAlteracao === "alteracao-nao-permitida") return NextResponse.json({ erro: "Alteração não permitida." }, { status: 409 });
+    if (erroAlteracao === "novo-horario-invalido") return NextResponse.json({ erro: "Novo horário inválido." }, { status: 400 });
+    if (erroAlteracao === "mesmo-horario") return NextResponse.json({ erro: "Escolha um horário diferente do atual." }, { status: 409 });
     let duracaoRemarcacao: number | undefined;
     if (corpo.acao === "remarcar") {
-      if (!corpo.data || !corpo.hora) return NextResponse.json({ erro: "Novo horário inválido." }, { status: 400 });
+      const dataNova = corpo.data;
+      const horaNova = corpo.hora;
+      if (!dataNova || !horaNova) return NextResponse.json({ erro: "Novo horário inválido." }, { status: 400 });
       const [configBanco, bloqueios] = await Promise.all([buscarConfiguracao(supabase), buscarBloqueios(supabase)]);
       const config = agendaDoBanco(configBanco);
-      const dia = config.diasFuncionamento.find((x) => x.id === idsDias[new Date(`${corpo.data}T12:00:00`).getDay()]);
+      const dia = config.diasFuncionamento.find((x) => x.id === idsDias[new Date(`${dataNova}T12:00:00`).getDay()]);
       const intervalo = Number(config.configAgenda.intervalo);
       duracaoRemarcacao = intervalo;
-      const inicio = minutos(corpo.hora); const fim = inicio + intervalo;
-      const instante = new Date(`${corpo.data}T${corpo.hora}:00-03:00`).getTime();
+      const inicio = minutos(horaNova); const fim = inicio + intervalo;
+      const instante = new Date(`${dataNova}T${horaNova}:00-03:00`).getTime();
       const diasDisponiveis = reserva.cobertoPorMensalidade ? Math.max(20, Number(config.configAgenda.diasParaAgendar)) : Number(config.configAgenda.diasParaAgendar);
       const limiteJanela = Date.now() + diasDisponiveis * 86400000;
-      const invalido = instante < Date.now() + 2 * 3600000 || instante > limiteJanela || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === corpo.data && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => r.id !== reserva.id && !r.statusManual && r.data === corpo.data && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? intervalo)));
+      const invalido = instante < Date.now() + 2 * 3600000 || instante > limiteJanela || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === dataNova && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => r.id !== reserva.id && !r.statusManual && r.data === dataNova && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? intervalo)));
       if (invalido) return NextResponse.json({ erro: "Novo horário indisponível." }, { status: 409 });
     }
     const historico = [...(reserva.historicoAlteracoes ?? []), { id: crypto.randomUUID(), tipo: corpo.acao === "cancelar" ? "Cancelada" : "Remarcada", origem: "Cliente", realizadaEm: new Date().toISOString(), dataAnterior: reserva.data, horaAnterior: reserva.hora, dataNova: corpo.data, horaNova: corpo.hora }];
