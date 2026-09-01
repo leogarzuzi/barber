@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     ]);
     if (resultadoCliente.error) throw resultadoCliente.error;
     const clienteExistente = resultadoCliente.data;
-    const nomeCliente = clienteExistente?.nome ?? corpo.nome?.trim();
+    const nomeCliente = corpo.nome?.trim();
     const mensalista = Boolean(clienteExistente?.mensalista);
     if (!/^[A-Za-zÀ-ÖØ-öø-ÿ]+(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]+)*$/.test(nomeCliente ?? "")) throw new Error("dados");
     const selecoes = corpo.itens?.map((selecao) => selecao.tipo === "servico" ? catalogo.servicos.find((x) => x.id === selecao.id) : catalogo.combos.find((x) => x.id === selecao.id));

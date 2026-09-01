@@ -399,7 +399,7 @@ export default function PaginaCliente() {
               {estadoIdentificacao === "erro" && <p className="mt-3 text-sm text-red-300">Não foi possível verificar agora. Apague um número e digite novamente.</p>}
               {(estadoIdentificacao === "cadastrado" || estadoIdentificacao === "novo") && (
                 <div className="mt-3 overflow-hidden rounded-2xl bg-neutral-950 focus-within:ring-2 focus-within:ring-amber-400">
-                  <input value={nome} onChange={(event) => setNome(somenteLetras(event.target.value))} placeholder="Seu nome" autoComplete="name" readOnly={estadoIdentificacao === "cadastrado"} aria-readonly={estadoIdentificacao === "cadastrado"} className={`w-full bg-transparent px-4 py-4 outline-none ${estadoIdentificacao === "cadastrado" ? "text-neutral-300" : ""}`} />
+                  <input value={nome} onChange={(event) => setNome(somenteLetras(event.target.value))} placeholder="Seu nome" autoComplete="name" className="w-full bg-transparent px-4 py-4 outline-none" />
                 </div>
               )}
               {estadoIdentificacao === "cadastrado" && <p className="mt-3 text-xs text-green-300">Olá, {nome.split(" ")[0]}.</p>}
