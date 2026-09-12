@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { autenticarDono } from "@/lib/google-calendar/owner";
 import { sincronizarAgendamentoGoogle } from "@/lib/google-calendar/sync";
 import { criarClienteSupabaseAdmin } from "@/lib/supabase/admin";
+import { podeMarcarNaoCompareceu } from "@/lib/agenda-rules.mjs";
 
 type CorpoAtualizacao = {
   data: string;
@@ -35,6 +36,9 @@ export async function PATCH(
       || !Array.isArray(corpo.historico)
     ) {
       return NextResponse.json({ erro: "Dados do agendamento inválidos." }, { status: 400 });
+    }
+    if (corpo.status === "nao_compareceu" && !podeMarcarNaoCompareceu({ data: corpo.data, hora: corpo.hora, agora: Date.now() })) {
+      return NextResponse.json({ erro: "Não é possível marcar falta antes do dia do atendimento ou com mais de 2 horas de antecedência." }, { status: 409 });
     }
 
     const supabase = criarClienteSupabaseAdmin();

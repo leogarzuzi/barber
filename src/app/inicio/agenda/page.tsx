@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Agendamento as AgendamentoBase, BloqueioAgenda, StatusAtendimento, dataLocal, obterStatusAtendimento, proximosDias, registrarAlteracaoAgendamento, reservaEstaAtiva } from "@/lib/barber-storage";
-import { intervalosSeSobrepoem, validarDiasFuncionamento } from "@/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, podeMarcarNaoCompareceu, validarDiasFuncionamento } from "@/lib/agenda-rules.mjs";
 import AppointmentCard from "@/components/agenda/AppointmentCard";
 import ConfirmDialog from "@/components/agenda/ConfirmDialog";
 import NoticeDialog from "@/components/NoticeDialog";
@@ -304,6 +304,10 @@ export default function AgendaPage() {
 
   async function alterarStatusAtendimento(statusManual?: "Cancelado" | "Não compareceu", alvo = agendamentoEditarStatus) {
     if (!alvo) return;
+    if (statusManual === "Não compareceu" && !podeMarcarNaoCompareceu({ data: alvo.data, hora: alvo.hora, agora: agoraRemarcacao })) {
+      setAviso({ titulo: "Ainda não é possível marcar falta", descricao: "Use \"Não compareceu\" apenas no dia do atendimento e quando faltar no máximo 2 horas para o horário." });
+      return;
+    }
     const novaLista = agendamentos.map((item) => {
       if (item.id !== alvo.id) return item;
       const statusAnterior = obterStatusAtendimento(item, agoraRemarcacao);
@@ -521,15 +525,18 @@ export default function AgendaPage() {
         {reservasEncerradasDoDia.length > 0 && <section className="mt-8 border-t border-white/10 pt-6"><div className="mb-3"><p className="text-xs font-black uppercase tracking-[.18em] text-neutral-500">Encerrados</p><h2 className="mt-1 text-xl font-black text-neutral-300">Atendimentos encerrados</h2></div><div className="space-y-3">{reservasEncerradasDoDia.map((item) => <AppointmentCard key={item.id} item={item} ativo={false} encerrado whatsappHref={whatsappLink(item)} onRemarcar={abrirRemarcacao} onEditarStatus={setAgendamentoEditarStatus} />)}</div></section>}
       </div>
 
-      {agendamentoEditarStatus && (
-        <div onClick={() => setAgendamentoEditarStatus(null)} className="fixed inset-0 z-[240] flex items-center justify-center bg-black/75 p-4">
-          <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] bg-neutral-900 p-5 text-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4"><div><h2 className="text-2xl font-black">Editar status</h2><p className="mt-1 text-sm text-neutral-400">{agendamentoEditarStatus.cliente} • {agendamentoEditarStatus.hora}</p></div><button type="button" onClick={() => setAgendamentoEditarStatus(null)} className="rounded-full bg-white/10 px-3 py-2 font-black">×</button></div>
-            <p className="mt-5 text-xs font-bold uppercase tracking-wider text-neutral-500">Status atual</p><div className={`mt-2 inline-flex rounded-full px-3 py-2 text-xs font-black ${statusClass(obterStatusAtendimento(agendamentoEditarStatus, agoraRemarcacao))}`}>{obterStatusAtendimento(agendamentoEditarStatus, agoraRemarcacao)}</div>
-            <div className="mt-5 space-y-2"><button type="button" onClick={() => alterarStatusAtendimento(undefined)} className="w-full rounded-2xl bg-white/10 p-4 text-left"><p className="font-black">Usar status automático</p><p className="mt-1 text-xs text-neutral-400">O sistema calcula pelo horário do atendimento.</p></button><button type="button" onClick={() => setConfirmacao({ tipo: "status", status: "Não compareceu", item: agendamentoEditarStatus })} className="w-full rounded-2xl bg-red-500/10 p-4 text-left text-red-200"><p className="font-black">Cliente não compareceu</p><p className="mt-1 text-xs opacity-70">Mantém a reserva no histórico.</p></button><button type="button" onClick={() => setConfirmacao({ tipo: "status", status: "Cancelado", item: agendamentoEditarStatus })} className="w-full rounded-2xl bg-red-500/10 p-4 text-left text-red-200"><p className="font-black">Atendimento cancelado</p><p className="mt-1 text-xs opacity-70">Libera o horário e preserva o registro.</p></button></div>
+      {agendamentoEditarStatus && (() => {
+        const faltaPermitida = podeMarcarNaoCompareceu({ data: agendamentoEditarStatus.data, hora: agendamentoEditarStatus.hora, agora: agoraRemarcacao });
+        return (
+          <div onClick={() => setAgendamentoEditarStatus(null)} className="fixed inset-0 z-[240] flex items-center justify-center bg-black/75 p-4">
+            <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-[2rem] bg-neutral-900 p-5 text-white shadow-2xl">
+              <div className="flex items-start justify-between gap-4"><div><h2 className="text-2xl font-black">Editar status</h2><p className="mt-1 text-sm text-neutral-400">{agendamentoEditarStatus.cliente} • {agendamentoEditarStatus.hora}</p></div><button type="button" onClick={() => setAgendamentoEditarStatus(null)} className="rounded-full bg-white/10 px-3 py-2 font-black">×</button></div>
+              <p className="mt-5 text-xs font-bold uppercase tracking-wider text-neutral-500">Status atual</p><div className={`mt-2 inline-flex rounded-full px-3 py-2 text-xs font-black ${statusClass(obterStatusAtendimento(agendamentoEditarStatus, agoraRemarcacao))}`}>{obterStatusAtendimento(agendamentoEditarStatus, agoraRemarcacao)}</div>
+              <div className="mt-5 space-y-2"><button type="button" onClick={() => alterarStatusAtendimento(undefined)} className="w-full rounded-2xl bg-white/10 p-4 text-left"><p className="font-black">Usar status automático</p><p className="mt-1 text-xs text-neutral-400">O sistema calcula pelo horário do atendimento.</p></button><button type="button" disabled={!faltaPermitida} onClick={() => setConfirmacao({ tipo: "status", status: "Não compareceu", item: agendamentoEditarStatus })} className="w-full rounded-2xl bg-red-500/10 p-4 text-left text-red-200 disabled:cursor-not-allowed disabled:opacity-45"><p className="font-black">Cliente não compareceu</p><p className="mt-1 text-xs opacity-70">{faltaPermitida ? "Mantém a reserva no histórico." : "Disponível apenas no dia do atendimento, a partir de 2 horas antes."}</p></button><button type="button" onClick={() => setConfirmacao({ tipo: "status", status: "Cancelado", item: agendamentoEditarStatus })} className="w-full rounded-2xl bg-red-500/10 p-4 text-left text-red-200"><p className="font-black">Atendimento cancelado</p><p className="mt-1 text-xs opacity-70">Libera o horário e preserva o registro.</p></button></div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {agendamentoRemarcar && (
         <div onClick={() => setAgendamentoRemarcar(null)} className="fixed inset-0 z-[220] flex items-center justify-center bg-black/75 p-4">

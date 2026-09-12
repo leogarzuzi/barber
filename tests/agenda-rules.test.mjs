@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { intervalosSeSobrepoem, normalizarAntecedenciaMinutos, validarAlteracaoReservaCliente, validarDiasFuncionamento, validarLimiteReservasCliente } from "../src/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, normalizarAntecedenciaMinutos, podeMarcarNaoCompareceu, validarAlteracaoReservaCliente, validarDiasFuncionamento, validarLimiteReservasCliente } from "../src/lib/agenda-rules.mjs";
 import { gerarProtocolo } from "../src/lib/protocolo.mjs";
 
 test("permite iniciar exatamente quando o atendimento anterior termina", () => {
@@ -108,6 +108,50 @@ test("cliente pode remarcar reserva ativa para outro horário dentro do prazo", 
       agora: agoraAlteracao,
     }),
     null,
+  );
+});
+
+test("não permite marcar falta antes do dia do atendimento", () => {
+  assert.equal(
+    podeMarcarNaoCompareceu({
+      data: "2026-09-10",
+      hora: "18:00",
+      agora: new Date("2026-09-02T09:08:00-03:00").getTime(),
+    }),
+    false,
+  );
+});
+
+test("não permite marcar falta no mesmo dia com mais de 2 horas de antecedência", () => {
+  assert.equal(
+    podeMarcarNaoCompareceu({
+      data: "2026-09-10",
+      hora: "18:00",
+      agora: new Date("2026-09-10T15:59:00-03:00").getTime(),
+    }),
+    false,
+  );
+});
+
+test("permite marcar falta no mesmo dia a partir de 2 horas antes", () => {
+  assert.equal(
+    podeMarcarNaoCompareceu({
+      data: "2026-09-10",
+      hora: "18:00",
+      agora: new Date("2026-09-10T16:00:00-03:00").getTime(),
+    }),
+    true,
+  );
+});
+
+test("permite marcar falta depois do horário do atendimento", () => {
+  assert.equal(
+    podeMarcarNaoCompareceu({
+      data: "2026-09-10",
+      hora: "18:00",
+      agora: new Date("2026-09-10T18:30:00-03:00").getTime(),
+    }),
+    true,
   );
 });
 

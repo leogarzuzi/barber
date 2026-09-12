@@ -55,6 +55,27 @@ export function validarAlteracaoReservaCliente({ reserva, acao, dataNova, horaNo
   return null;
 }
 
+function dataEmSaoPaulo(timestamp) {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(timestamp));
+  const mapa = Object.fromEntries(partes.map((parte) => [parte.type, parte.value]));
+  return `${mapa.year}-${mapa.month}-${mapa.day}`;
+}
+
+/**
+ * Permite marcar falta somente no dia do atendimento e perto do horário.
+ * @param {{ data: string, hora: string, agora: number, antecedenciaMs?: number }} dados
+ */
+export function podeMarcarNaoCompareceu({ data, hora, agora, antecedenciaMs = 2 * 3600000 }) {
+  if (!data || !hora) return false;
+  const inicio = new Date(`${data}T${hora}:00-03:00`).getTime();
+  return Number.isFinite(inicio) && dataEmSaoPaulo(agora) === data && inicio - agora <= antecedenciaMs;
+}
+
 /** @param {string} hora */
 function minutos(hora) {
   const [horas, minutosHora] = hora.split(":").map(Number);
