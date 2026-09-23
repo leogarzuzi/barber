@@ -5,6 +5,7 @@ import {
   Agendamento,
   Cliente,
   dataLocal,
+  nomePlanoMensal,
   normalizarWhatsapp,
   perfilInicial,
   type PerfilBarbearia,
@@ -239,7 +240,7 @@ export default function FinanceiroPage() {
 
             <section className="mt-5 rounded-[1.75rem] bg-neutral-900 p-5">
               <div className="flex items-end justify-between gap-4 border-b border-white/10 pb-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Planos mensais</p><h2 className="mt-1 text-xl font-black">Clientes ativos</h2></div><span className="rounded-full bg-amber-400/10 px-3 py-1 text-xs font-black text-amber-300">{resumo.reservasMensalistas} reserva(s)</span></div>
-              {resumo.mensalistas.length === 0 ? <p className="py-8 text-center text-sm text-neutral-400">Nenhum mensalista ativo.</p> : <div className="divide-y divide-white/10">{resumo.mensalistas.map((cliente) => <article key={cliente.id} className="flex items-center justify-between gap-4 py-4"><div className="min-w-0"><p className="truncate font-black">{cliente.nome}</p><p className="mt-1 text-xs text-neutral-500">{cliente.atendimentos} atendimento(s) no período</p></div><strong className="shrink-0 text-amber-300">{dinheiro(cliente.mensalidade)}</strong></article>)}</div>}
+              {resumo.mensalistas.length === 0 ? <p className="py-8 text-center text-sm text-neutral-400">Nenhum mensalista ativo.</p> : <div className="divide-y divide-white/10">{resumo.mensalistas.map((cliente) => <article key={cliente.id} className="flex items-center justify-between gap-4 py-4"><div className="min-w-0"><p className="truncate font-black">{cliente.nome}</p><p className="mt-1 text-xs text-neutral-500">{nomePlanoMensal(cliente.planoMensal)} • {cliente.atendimentos} atendimento(s) no período</p></div><strong className="shrink-0 text-amber-300">{dinheiro(cliente.mensalidade)}</strong></article>)}</div>}
             </section>
           </>
         )}

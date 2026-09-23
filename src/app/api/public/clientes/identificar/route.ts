@@ -22,15 +22,15 @@ export async function POST(request: NextRequest) {
 
     const { data, error } = await supabase
       .from("clientes")
-      .select("nome, mensalista")
+      .select("nome, plano_mensal")
       .eq("whatsapp", whatsapp)
       .maybeSingle();
     if (error) throw error;
 
     return NextResponse.json(
       data
-        ? { encontrado: true, nome: data.nome, mensalista: data.mensalista }
-        : { encontrado: false, mensalista: false },
+        ? { encontrado: true, nome: data.nome, planoMensal: data.plano_mensal }
+        : { encontrado: false, planoMensal: "comum" },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (erro) {

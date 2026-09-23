@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Agendamento, BloqueioAgenda, Cliente } from "@/lib/barber-storage";
+import type { Agendamento, BloqueioAgenda, Cliente, PlanoMensal } from "@/lib/barber-storage";
 
 function horaCurta(hora: string) { return hora.slice(0, 5); }
 
@@ -31,9 +31,12 @@ export async function buscarBloqueios(supabase: SupabaseClient) {
 }
 
 export async function buscarClientes(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("clientes").select("id, nome, whatsapp, email, mensalista, mensalidade_centavos, criado_em, atualizado_em").order("atualizado_em", { ascending: false });
+  const { data, error } = await supabase.from("clientes").select("id, nome, whatsapp, email, plano_mensal, mensalista, mensalidade_centavos, criado_em, atualizado_em").order("atualizado_em", { ascending: false });
   if (error) throw error;
-  return data.map<Cliente>((item) => ({ id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, mensalista: item.mensalista, mensalidade: item.mensalidade_centavos / 100, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em }));
+  return data.map<Cliente>((item) => {
+    const planoMensal = item.plano_mensal as PlanoMensal;
+    return { id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, planoMensal, mensalista: planoMensal !== "comum", mensalidade: item.mensalidade_centavos / 100, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em };
+  });
 }
 
 export async function atualizarAgendamento(item: Agendamento) {

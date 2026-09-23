@@ -24,14 +24,22 @@ export function normalizarAntecedenciaMinutos(valor) {
 }
 
 /**
- * @param {{ mensalista: boolean, datasAtivas: string[], novaData: string }} dados
+ * @param {{ planoMensal: "comum" | "mensalista" | "mensalista_plus", datasAtivas: string[], novaData: string }} dados
  * @returns {"reserva-existente" | "limite-mensalista" | "mesmo-dia" | null}
  */
-export function validarLimiteReservasCliente({ mensalista, datasAtivas, novaData }) {
-  if (!mensalista) return datasAtivas.length > 0 ? "reserva-existente" : null;
-  if (datasAtivas.length >= 4) return "limite-mensalista";
+export function validarLimiteReservasCliente({ planoMensal, datasAtivas, novaData }) {
+  if (planoMensal === "comum") return datasAtivas.length > 0 ? "reserva-existente" : null;
+  if (datasAtivas.length >= 5) return "limite-mensalista";
   if (datasAtivas.includes(novaData)) return "mesmo-dia";
   return null;
+}
+
+/**
+ * @param {{ planoMensal: "comum" | "mensalista" | "mensalista_plus", diaSemana: number }} dados
+ */
+export function planoPermiteDia({ planoMensal, diaSemana }) {
+  if (planoMensal !== "mensalista") return true;
+  return diaSemana >= 1 && diaSemana <= 4;
 }
 
 /**

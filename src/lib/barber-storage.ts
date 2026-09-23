@@ -20,11 +20,13 @@ export type PerfilBarbearia = {
   foto: string;
 };
 export type BloqueioAgenda = { id: string; data: string; diaInteiro: boolean; inicio: string; fim: string; motivo: string };
+export type PlanoMensal = "comum" | "mensalista" | "mensalista_plus";
 export type Cliente = {
   id: string;
   nome: string;
   whatsapp: string;
   email?: string;
+  planoMensal: PlanoMensal;
   mensalista: boolean;
   mensalidade: number;
   criadoEm: string;
@@ -59,6 +61,16 @@ export type Agendamento = {
 };
 
 export type StatusAtendimento = "Agendado" | "Em atendimento" | "Concluído" | "Cancelado" | "Não compareceu";
+
+export function temPlanoMensal(plano: PlanoMensal) {
+  return plano !== "comum";
+}
+
+export function nomePlanoMensal(plano: PlanoMensal) {
+  if (plano === "mensalista_plus") return "Mensalista Plus";
+  if (plano === "mensalista") return "Mensalista";
+  return "Cliente comum";
+}
 
 export function obterStatusAtendimento(agendamento: Agendamento, agora: number): StatusAtendimento {
   if (agendamento.statusManual) return agendamento.statusManual;
@@ -147,7 +159,7 @@ export function cadastrarOuAtualizarCliente(nome: string, whatsapp: string) {
     return atualizado;
   }
 
-  const novo: Cliente = { id: crypto.randomUUID(), nome: nome.trim(), whatsapp: numero, mensalista: false, mensalidade: 160, criadoEm: agora, atualizadoEm: agora };
+  const novo: Cliente = { id: crypto.randomUUID(), nome: nome.trim(), whatsapp: numero, planoMensal: "comum", mensalista: false, mensalidade: 160, criadoEm: agora, atualizadoEm: agora };
   salvarClientes([novo, ...clientes]);
   return novo;
 }

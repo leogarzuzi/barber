@@ -9,10 +9,12 @@ import {
   ConfiguracaoAgenda,
   normalizarWhatsapp,
   obterStatusAtendimento,
+  type PlanoMensal,
   proximosDias,
   reservaEstaAtiva,
+  temPlanoMensal,
 } from "@/lib/barber-storage";
-import { intervalosSeSobrepoem } from "@/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, planoPermiteDia } from "@/lib/agenda-rules.mjs";
 
 type Props = {
   agendamentos: Agendamento[];
@@ -36,6 +38,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const [whatsapp, setWhatsapp] = useState("");
   const [erro, setErro] = useState("");
   const [reservasEncontradas, setReservasEncontradas] = useState<Agendamento[] | null>(null);
+  const [planoMensalConsulta, setPlanoMensalConsulta] = useState<PlanoMensal>("comum");
   const [reserva, setReserva] = useState<Agendamento | null>(null);
   const [modoRemarcar, setModoRemarcar] = useState(false);
   const [novaData, setNovaData] = useState("");
@@ -64,7 +67,8 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const inicioReserva = reserva ? new Date(`${reserva.data}T${reserva.hora}:00`).getTime() : 0;
   const dentroDoPrazo = Boolean(reserva && status === "Agendado" && inicioReserva - relogio >= DUAS_HORAS);
   const janelaPadrao = Number(configuracao?.configAgenda.diasParaAgendar ?? 7);
-  const dias = proximosDias(reserva?.cobertoPorMensalidade ? Math.max(20, janelaPadrao) : janelaPadrao);
+  const dias = proximosDias(reserva?.cobertoPorMensalidade || temPlanoMensal(planoMensalConsulta) ? Math.max(20, janelaPadrao) : janelaPadrao)
+    .filter((item) => planoPermiteDia({ planoMensal: planoMensalConsulta, diaSemana: new Date(`${item.data}T12:00:00`).getDay() }));
   const { proximasReservas, historicoReservas } = useMemo(() => {
     const lista = (reservasEncontradas ?? []).map((item) => ({
       item,
@@ -84,6 +88,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
   const horariosRemarcacao = useMemo(() => {
     if (!reserva || !configuracao || !novaData) return [];
     const dataSelecionada = new Date(`${novaData}T12:00:00`);
+    if (!planoPermiteDia({ planoMensal: planoMensalConsulta, diaSemana: dataSelecionada.getDay() })) return [];
     const expediente = configuracao.diasFuncionamento.find((item) => item.id === idsDosDias[dataSelecionada.getDay()]);
     if (!expediente?.ativo) return [];
     const intervalo = Number(configuracao.configAgenda.intervalo);
@@ -106,7 +111,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
       if (fim <= minutos(expediente.fechamento) && instante >= limiteMinimo && !sobrepoePausa && !sobrepoeBloqueio && !sobrepoeReserva) disponiveis.push(hora);
     }
     return disponiveis;
-  }, [reserva, configuracao, novaData, relogio, bloqueios, agendamentos]);
+  }, [reserva, configuracao, novaData, relogio, bloqueios, agendamentos, planoMensalConsulta]);
 
   function fechar() {
     if (consultandoRef.current || processandoConfirmacaoRef.current) return;
@@ -114,6 +119,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
     setWhatsapp("");
     setErro("");
     setReservasEncontradas(null);
+    setPlanoMensalConsulta("comum");
     setReserva(null);
     setModoRemarcar(false);
     setNovaData("");
@@ -137,12 +143,13 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
 
     try {
       const resposta = await fetch(`/api/public/reservas?whatsapp=${numero}`, { cache: "no-store" });
-      const resultado = await resposta.json() as { reservas?: Agendamento[]; erro?: string };
+      const resultado = await resposta.json() as { reservas?: Agendamento[]; planoMensal?: PlanoMensal; erro?: string };
       if (!resposta.ok || !resultado.reservas?.length) {
         setErro(resultado.erro ?? "Não encontramos reservas para este WhatsApp.");
         return;
       }
       setReservasEncontradas(resultado.reservas);
+      setPlanoMensalConsulta(resultado.planoMensal ?? "comum");
       setReserva(null);
       setErro("");
     } catch {
@@ -241,7 +248,7 @@ export default function ClientReservationLookup({ agendamentos, bloqueios, confi
               </section>
             )}
 
-            <button type="button" onClick={() => { setReservasEncontradas(null); setWhatsapp(""); setErro(""); }} className="w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Consultar outro WhatsApp</button>
+            <button type="button" onClick={() => { setReservasEncontradas(null); setPlanoMensalConsulta("comum"); setWhatsapp(""); setErro(""); }} className="w-full rounded-2xl bg-white/5 px-4 py-3 text-xs font-black text-neutral-300">Consultar outro WhatsApp</button>
           </div>
         ) : (
           <div className="mt-5">

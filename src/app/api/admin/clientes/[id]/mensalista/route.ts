@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { autenticarDono } from "@/lib/google-calendar/owner";
 import { criarClienteSupabaseAdmin } from "@/lib/supabase/admin";
+import type { PlanoMensal } from "@/lib/barber-storage";
+
+const planosValidos: PlanoMensal[] = ["comum", "mensalista", "mensalista_plus"];
 
 function origemValida(request: NextRequest) {
   const origem = request.headers.get("origin");
@@ -18,16 +21,22 @@ export async function PATCH(
 
   try {
     const { id } = await contexto.params;
-    const corpo = await request.json() as { mensalista?: unknown };
-    if (typeof corpo.mensalista !== "boolean") {
-      return NextResponse.json({ erro: "Situação de mensalista inválida." }, { status: 400 });
+    const corpo = await request.json() as { planoMensal?: unknown };
+    if (typeof corpo.planoMensal !== "string" || !planosValidos.includes(corpo.planoMensal as PlanoMensal)) {
+      return NextResponse.json({ erro: "Plano mensal inválido." }, { status: 400 });
     }
+    const planoMensal = corpo.planoMensal as PlanoMensal;
+    const mensalidadeCentavos = planoMensal === "mensalista_plus" ? 18000 : 16000;
 
     const { data, error } = await criarClienteSupabaseAdmin()
       .from("clientes")
-      .update({ mensalista: corpo.mensalista })
+      .update({
+        plano_mensal: planoMensal,
+        mensalista: planoMensal !== "comum",
+        mensalidade_centavos: mensalidadeCentavos,
+      })
       .eq("id", id)
-      .select("id, mensalista")
+      .select("id, plano_mensal, mensalista, mensalidade_centavos")
       .single();
     if (error) throw error;
 

@@ -3,10 +3,11 @@ import { criarClienteSupabaseAdmin } from "@/lib/supabase/admin";
 import { buscarCatalogo } from "@/lib/supabase/catalogo";
 import { buscarConfiguracao, agendaDoBanco } from "@/lib/supabase/configuracoes";
 import { buscarAgendamentos, buscarBloqueios } from "@/lib/supabase/agenda";
-import { intervalosSeSobrepoem, validarAlteracaoReservaCliente, validarLimiteReservasCliente } from "@/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, planoPermiteDia, validarAlteracaoReservaCliente, validarLimiteReservasCliente } from "@/lib/agenda-rules.mjs";
 import { chaveRateLimit, consumirRateLimit, ipDaRequisicao, limparRateLimit, respostaBloqueada } from "@/lib/supabase/rate-limit";
 import { sincronizarAgendamentoGoogle } from "@/lib/google-calendar/sync";
 import { gerarProtocolo } from "@/lib/protocolo.mjs";
+import { temPlanoMensal, type PlanoMensal } from "@/lib/barber-storage";
 
 const idsDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
 function minutos(hora: string) { const [h, m] = hora.split(":").map(Number); return h * 60 + m; }
@@ -58,8 +59,14 @@ export async function GET(request: NextRequest) {
     if (!falha.permitido) return respostaBloqueada(falha.tentar_em);
     return NextResponse.json({ erro: "Não encontramos reservas para este WhatsApp." }, { status: 404 });
   }
+  const { data: cliente, error: erroCliente } = await supabase
+    .from("clientes")
+    .select("plano_mensal")
+    .eq("whatsapp", whatsapp)
+    .maybeSingle();
+  if (erroCliente) return NextResponse.json({ erro: "Não foi possível consultar o plano do cliente." }, { status: 503 });
   await limparRateLimit(supabase, chaveFalhas);
-  return NextResponse.json({ reservas: reservasDoCliente });
+  return NextResponse.json({ reservas: reservasDoCliente, planoMensal: cliente?.plano_mensal ?? "comum" });
 }
 
 export async function POST(request: NextRequest) {
@@ -69,19 +76,20 @@ export async function POST(request: NextRequest) {
     if (!limiteIp.permitido) return respostaBloqueada(limiteIp.tentar_em);
     const corpo = await request.json() as { nome: string; whatsapp: string; itens: Array<{ tipo: "servico" | "combo"; id: string }>; data: string; hora: string };
     if (!/^55219\d{8}$/.test(corpo.whatsapp ?? "")) throw new Error("dados");
-    const limiteTelefone = await consumirRateLimit(supabase, chaveRateLimit("criar-reserva-whatsapp", corpo.whatsapp), { limite: 4, janelaSegundos: 3600, bloqueioSegundos: 3600 });
+    const limiteTelefone = await consumirRateLimit(supabase, chaveRateLimit("criar-reserva-whatsapp", corpo.whatsapp), { limite: 6, janelaSegundos: 3600, bloqueioSegundos: 3600 });
     if (!limiteTelefone.permitido) return respostaBloqueada(limiteTelefone.tentar_em);
     const [catalogo, configBanco, bloqueios, reservas, resultadoCliente] = await Promise.all([
       buscarCatalogo(supabase, true),
       buscarConfiguracao(supabase),
       buscarBloqueios(supabase),
       buscarAgendamentos(supabase),
-      supabase.from("clientes").select("id, nome, mensalista").eq("whatsapp", corpo.whatsapp).maybeSingle(),
+      supabase.from("clientes").select("id, nome, plano_mensal").eq("whatsapp", corpo.whatsapp).maybeSingle(),
     ]);
     if (resultadoCliente.error) throw resultadoCliente.error;
     const clienteExistente = resultadoCliente.data;
     const nomeCliente = corpo.nome?.trim();
-    const mensalista = Boolean(clienteExistente?.mensalista);
+    const planoMensal = (clienteExistente?.plano_mensal ?? "comum") as PlanoMensal;
+    const mensalista = temPlanoMensal(planoMensal);
     if (!/^[A-Za-zÀ-ÖØ-öø-ÿ]+(?:\s+[A-Za-zÀ-ÖØ-öø-ÿ]+)*$/.test(nomeCliente ?? "")) throw new Error("dados");
     const selecoes = corpo.itens?.map((selecao) => selecao.tipo === "servico" ? catalogo.servicos.find((x) => x.id === selecao.id) : catalogo.combos.find((x) => x.id === selecao.id));
     if (!selecoes?.length || selecoes.some((item) => !item) || corpo.itens.some((item) => item.tipo !== "servico" && item.tipo !== "combo")) return NextResponse.json({ erro: "Seleção de serviços inválida." }, { status: 409 });
@@ -89,19 +97,20 @@ export async function POST(request: NextRequest) {
     const item = { nome: itens.map((x) => x.nome).join(" + "), valor: itens.reduce((total, x) => total + x.valor, 0) };
     const itemTipo = corpo.itens.length === 1 ? corpo.itens[0].tipo : "itens";
     const config = agendaDoBanco(configBanco);
-    const dia = config.diasFuncionamento.find((x) => x.id === idsDias[new Date(`${corpo.data}T12:00:00`).getDay()]);
+    const diaSemana = new Date(`${corpo.data}T12:00:00`).getDay();
+    const dia = config.diasFuncionamento.find((x) => x.id === idsDias[diaSemana]);
     const intervalo = Number(config.configAgenda.intervalo);
     const inicio = minutos(corpo.hora); const fim = inicio + intervalo;
     const instante = new Date(`${corpo.data}T${corpo.hora}:00-03:00`).getTime();
     const antecedencia = Number(config.configAgenda.antecedenciaMinima) * 60000;
     const diasDisponiveis = mensalista ? Math.max(20, Number(config.configAgenda.diasParaAgendar)) : Number(config.configAgenda.diasParaAgendar);
     const limiteJanela = Date.now() + diasDisponiveis * 86400000;
-    const invalido = instante < Date.now() + antecedencia || instante > limiteJanela || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === corpo.data && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => !r.statusManual && r.data === corpo.data && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? intervalo)));
+    const invalido = instante < Date.now() + antecedencia || instante > limiteJanela || !planoPermiteDia({ planoMensal, diaSemana }) || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === corpo.data && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => !r.statusManual && r.data === corpo.data && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? intervalo)));
     if (invalido) return NextResponse.json({ erro: "Horário indisponível." }, { status: 409 });
     const reservasAtivasCliente = reservas.filter((r) => !r.statusManual && r.whatsapp === corpo.whatsapp && new Date(`${r.data}T${r.hora}:00-03:00`).getTime() + (r.duracaoMinutos ?? intervalo) * 60000 > Date.now());
-    const limiteReservas = validarLimiteReservasCliente({ mensalista, datasAtivas: reservasAtivasCliente.map((reserva) => reserva.data), novaData: corpo.data });
+    const limiteReservas = validarLimiteReservasCliente({ planoMensal, datasAtivas: reservasAtivasCliente.map((reserva) => reserva.data), novaData: corpo.data });
     if (limiteReservas === "reserva-existente") return NextResponse.json({ erro: "Este WhatsApp já possui uma reserva ativa." }, { status: 409 });
-    if (limiteReservas === "limite-mensalista") return NextResponse.json({ erro: "Você já possui o limite de 4 reservas futuras." }, { status: 409 });
+    if (limiteReservas === "limite-mensalista") return NextResponse.json({ erro: "Você já possui o limite de 5 reservas futuras." }, { status: 409 });
     if (limiteReservas === "mesmo-dia") return NextResponse.json({ erro: "Mensalistas podem manter apenas uma reserva por dia." }, { status: 409 });
     const { data: cliente, error: erroCliente } = await supabase.from("clientes").upsert({ nome: nomeCliente, whatsapp: corpo.whatsapp }, { onConflict: "whatsapp" }).select("id").single();
     if (erroCliente) throw erroCliente;
@@ -149,6 +158,13 @@ export async function PATCH(request: NextRequest) {
     const reservas = await buscarAgendamentos(supabase);
     const reserva = reservas.find((x) => x.codigo === codigo && x.whatsapp === whatsapp);
     if (!reserva) return NextResponse.json({ erro: "Alteração não permitida." }, { status: 409 });
+    const { data: clientePlano, error: erroPlano } = await supabase
+      .from("clientes")
+      .select("plano_mensal")
+      .eq("whatsapp", whatsapp)
+      .maybeSingle();
+    if (erroPlano) throw erroPlano;
+    const planoMensal = (clientePlano?.plano_mensal ?? (reserva.cobertoPorMensalidade ? "mensalista" : "comum")) as PlanoMensal;
     const erroAlteracao = validarAlteracaoReservaCliente({ reserva, acao: corpo.acao, dataNova: corpo.data, horaNova: corpo.hora, agora: Date.now() });
     if (erroAlteracao === "alteracao-nao-permitida") return NextResponse.json({ erro: "Alteração não permitida." }, { status: 409 });
     if (erroAlteracao === "novo-horario-invalido") return NextResponse.json({ erro: "Novo horário inválido." }, { status: 400 });
@@ -160,14 +176,15 @@ export async function PATCH(request: NextRequest) {
       if (!dataNova || !horaNova) return NextResponse.json({ erro: "Novo horário inválido." }, { status: 400 });
       const [configBanco, bloqueios] = await Promise.all([buscarConfiguracao(supabase), buscarBloqueios(supabase)]);
       const config = agendaDoBanco(configBanco);
-      const dia = config.diasFuncionamento.find((x) => x.id === idsDias[new Date(`${dataNova}T12:00:00`).getDay()]);
+      const diaSemana = new Date(`${dataNova}T12:00:00`).getDay();
+      const dia = config.diasFuncionamento.find((x) => x.id === idsDias[diaSemana]);
       const intervalo = Number(config.configAgenda.intervalo);
       duracaoRemarcacao = intervalo;
       const inicio = minutos(horaNova); const fim = inicio + intervalo;
       const instante = new Date(`${dataNova}T${horaNova}:00-03:00`).getTime();
-      const diasDisponiveis = reserva.cobertoPorMensalidade ? Math.max(20, Number(config.configAgenda.diasParaAgendar)) : Number(config.configAgenda.diasParaAgendar);
+      const diasDisponiveis = reserva.cobertoPorMensalidade || temPlanoMensal(planoMensal) ? Math.max(20, Number(config.configAgenda.diasParaAgendar)) : Number(config.configAgenda.diasParaAgendar);
       const limiteJanela = Date.now() + diasDisponiveis * 86400000;
-      const invalido = instante < Date.now() + 2 * 3600000 || instante > limiteJanela || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === dataNova && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => r.id !== reserva.id && !r.statusManual && r.data === dataNova && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? intervalo)));
+      const invalido = instante < Date.now() + 2 * 3600000 || instante > limiteJanela || !planoPermiteDia({ planoMensal, diaSemana }) || !dia?.ativo || inicio < minutos(dia.abertura) || fim > minutos(dia.fechamento) || (dia.temPausa && intervalosSeSobrepoem(inicio, fim, minutos(dia.pausaInicio), minutos(dia.pausaFim))) || bloqueios.some((b) => b.data === dataNova && intervalosSeSobrepoem(inicio, fim, b.diaInteiro ? 0 : minutos(b.inicio), b.diaInteiro ? 1440 : minutos(b.fim))) || reservas.some((r) => r.id !== reserva.id && !r.statusManual && r.data === dataNova && intervalosSeSobrepoem(inicio, fim, minutos(r.hora), minutos(r.hora) + (r.duracaoMinutos ?? intervalo)));
       if (invalido) return NextResponse.json({ erro: "Novo horário indisponível." }, { status: 409 });
     }
     const historico = [...(reserva.historicoAlteracoes ?? []), { id: crypto.randomUUID(), tipo: corpo.acao === "cancelar" ? "Cancelada" : "Remarcada", origem: "Cliente", realizadaEm: new Date().toISOString(), dataAnterior: reserva.data, horaAnterior: reserva.hora, dataNova: corpo.data, horaNova: corpo.hora }];

@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import type { PerfilBarbearia } from "@/lib/barber-storage";
+import { nomePlanoMensal, type PerfilBarbearia } from "@/lib/barber-storage";
 import { nomeDoMes, type ResumoFinanceiroMensal } from "@/lib/resumo-financeiro";
 
 const CORES = {
@@ -230,7 +230,8 @@ export function gerarRelatorioFinanceiroPdf(
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
       doc.setTextColor(...CORES.texto);
-      const nome = doc.splitTextToSize(cliente.nome, 98)[0] as string;
+      const identificacao = cliente.planoMensal === "mensalista_plus" ? `${cliente.nome} - ${nomePlanoMensal(cliente.planoMensal)}` : cliente.nome;
+      const nome = doc.splitTextToSize(identificacao, 98)[0] as string;
       doc.text(nome, margem + 4, y + 4);
       doc.setFont("helvetica", "bold");
       doc.text(String(cliente.atendimentos), 157, y + 4, { align: "right" });

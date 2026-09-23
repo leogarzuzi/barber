@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { intervalosSeSobrepoem, normalizarAntecedenciaMinutos, podeMarcarNaoCompareceu, validarAlteracaoReservaCliente, validarDiasFuncionamento, validarLimiteReservasCliente } from "../src/lib/agenda-rules.mjs";
+import { intervalosSeSobrepoem, normalizarAntecedenciaMinutos, planoPermiteDia, podeMarcarNaoCompareceu, validarAlteracaoReservaCliente, validarDiasFuncionamento, validarLimiteReservasCliente } from "../src/lib/agenda-rules.mjs";
 import { gerarProtocolo } from "../src/lib/protocolo.mjs";
 
 test("permite iniciar exatamente quando o atendimento anterior termina", () => {
@@ -46,16 +46,32 @@ test("limita configurações antigas acima de 3 horas", () => {
 });
 
 test("cliente avulso não pode manter duas reservas futuras", () => {
-  assert.equal(validarLimiteReservasCliente({ mensalista: false, datasAtivas: ["2026-08-10"], novaData: "2026-08-12" }), "reserva-existente");
+  assert.equal(validarLimiteReservasCliente({ planoMensal: "comum", datasAtivas: ["2026-08-10"], novaData: "2026-08-12" }), "reserva-existente");
 });
 
-test("mensalista pode manter até quatro reservas em dias diferentes", () => {
-  assert.equal(validarLimiteReservasCliente({ mensalista: true, datasAtivas: ["2026-08-10", "2026-08-12", "2026-08-14"], novaData: "2026-08-16" }), null);
-  assert.equal(validarLimiteReservasCliente({ mensalista: true, datasAtivas: ["2026-08-10", "2026-08-12", "2026-08-14", "2026-08-16"], novaData: "2026-08-18" }), "limite-mensalista");
+test("planos mensais podem manter até cinco reservas em dias diferentes", () => {
+  const quatroDatas = ["2026-08-10", "2026-08-12", "2026-08-14", "2026-08-16"];
+  const cincoDatas = [...quatroDatas, "2026-08-18"];
+  assert.equal(validarLimiteReservasCliente({ planoMensal: "mensalista", datasAtivas: quatroDatas, novaData: "2026-08-18" }), null);
+  assert.equal(validarLimiteReservasCliente({ planoMensal: "mensalista_plus", datasAtivas: cincoDatas, novaData: "2026-08-20" }), "limite-mensalista");
 });
 
 test("mensalista não pode criar duas reservas no mesmo dia", () => {
-  assert.equal(validarLimiteReservasCliente({ mensalista: true, datasAtivas: ["2026-08-10"], novaData: "2026-08-10" }), "mesmo-dia");
+  assert.equal(validarLimiteReservasCliente({ planoMensal: "mensalista", datasAtivas: ["2026-08-10"], novaData: "2026-08-10" }), "mesmo-dia");
+});
+
+test("mensalista comum agenda apenas de segunda a quinta", () => {
+  assert.equal(planoPermiteDia({ planoMensal: "mensalista", diaSemana: 1 }), true);
+  assert.equal(planoPermiteDia({ planoMensal: "mensalista", diaSemana: 4 }), true);
+  assert.equal(planoPermiteDia({ planoMensal: "mensalista", diaSemana: 5 }), false);
+  assert.equal(planoPermiteDia({ planoMensal: "mensalista", diaSemana: 0 }), false);
+});
+
+test("mensalista plus e cliente comum podem usar qualquer dia aberto", () => {
+  for (let diaSemana = 0; diaSemana <= 6; diaSemana += 1) {
+    assert.equal(planoPermiteDia({ planoMensal: "mensalista_plus", diaSemana }), true);
+    assert.equal(planoPermiteDia({ planoMensal: "comum", diaSemana }), true);
+  }
 });
 
 const agoraAlteracao = new Date("2026-08-25T10:00:00-03:00").getTime();
