@@ -81,6 +81,13 @@ export async function POST(request: NextRequest) {
     if (corpo.aniversario !== undefined && !aniversario) throw new Error("dados");
     const limiteTelefone = await consumirRateLimit(supabase, chaveRateLimit("criar-reserva-whatsapp", corpo.whatsapp), { limite: 6, janelaSegundos: 3600, bloqueioSegundos: 3600 });
     if (!limiteTelefone.permitido) return respostaBloqueada(limiteTelefone.tentar_em);
+    const { data: bloqueioCliente, error: erroBloqueioCliente } = await supabase
+      .from("clientes_bloqueados")
+      .select("id")
+      .eq("whatsapp", corpo.whatsapp)
+      .maybeSingle();
+    if (erroBloqueioCliente) throw erroBloqueioCliente;
+    if (bloqueioCliente) return NextResponse.json({ erro: "Horário indisponível." }, { status: 409 });
     const [catalogo, configBanco, bloqueios, reservas, resultadoCliente] = await Promise.all([
       buscarCatalogo(supabase, true),
       buscarConfiguracao(supabase),

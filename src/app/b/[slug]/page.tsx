@@ -77,6 +77,7 @@ export default function PaginaCliente() {
   const [whatsapp, setWhatsapp] = useState("");
   const [estadoIdentificacao, setEstadoIdentificacao] = useState<EstadoIdentificacao>("inicial");
   const [planoMensal, setPlanoMensal] = useState<PlanoMensal>("comum");
+  const [clienteBloqueado, setClienteBloqueado] = useState(false);
   const [aniversarioAberto, setAniversarioAberto] = useState(false);
   const [aniversarioEntrada, setAniversarioEntrada] = useState("");
   const [aniversarioPendente, setAniversarioPendente] = useState("");
@@ -194,8 +195,9 @@ export default function PaginaCliente() {
           cache: "no-store",
           signal: controle.signal,
         });
-        const resultado = await resposta.json() as { encontrado?: boolean; nome?: string; planoMensal?: PlanoMensal; aniversarioCadastrado?: boolean; erro?: string };
+        const resultado = await resposta.json() as { encontrado?: boolean; nome?: string; planoMensal?: PlanoMensal; aniversarioCadastrado?: boolean; bloqueado?: boolean; erro?: string };
         if (!resposta.ok) throw new Error(resultado.erro);
+        setClienteBloqueado(Boolean(resultado.bloqueado));
         setAniversarioEntrada("");
         setAniversarioPendente("");
         setAniversarioErro("");
@@ -208,7 +210,7 @@ export default function PaginaCliente() {
           setPlanoMensal("comum");
           setEstadoIdentificacao("novo");
         }
-        setAniversarioAberto(!resultado.aniversarioCadastrado);
+        setAniversarioAberto(!resultado.aniversarioCadastrado && !resultado.bloqueado);
       } catch {
         if (controle.signal.aborted) return;
         setEstadoIdentificacao("erro");
@@ -268,6 +270,7 @@ export default function PaginaCliente() {
   }, [configuracao, diaSelecionado, agora, intervaloReserva, bloqueios]);
   const horariosOcupados = useMemo(
     () => {
+      if (clienteBloqueado) return new Set(horarios);
       const intervaloPadrao = Number(configuracao?.configAgenda.intervalo ?? 30);
       const reservasDoDia = agendamentos.filter((item) => item.data === diaSelecionado && reservaEstaAtiva(item, agora));
       return new Set(horarios.filter((hora) => {
@@ -280,7 +283,7 @@ export default function PaginaCliente() {
         });
       }));
     },
-    [agendamentos, configuracao, diaSelecionado, intervaloReserva, horarios, agora]
+    [agendamentos, configuracao, diaSelecionado, intervaloReserva, horarios, agora, clienteBloqueado]
   );
 
   function selecionarDia(novoDia: string) {
@@ -297,6 +300,7 @@ export default function PaginaCliente() {
     setWhatsapp(somenteDigitos(valor));
     setEstadoIdentificacao("inicial");
     setPlanoMensal("comum");
+    setClienteBloqueado(false);
     setNome("");
     setAniversarioAberto(false);
     setAniversarioEntrada("");
@@ -358,6 +362,11 @@ export default function PaginaCliente() {
 
   async function agendar() {
     if (processandoReservaRef.current) return;
+
+    if (clienteBloqueado) {
+      setAvisoFormulario({ titulo: "Horário indisponível", mensagem: "Não encontramos horários disponíveis para reserva no momento." });
+      return;
+    }
 
     if (!identificado || !servico || !diaSelecionado || !horario || !nome.trim() || !whatsapp.trim()) {
       setAvisoFormulario({ titulo: "Faltam algumas informações", mensagem: "Escolha ao menos um serviço ou combo, o dia e o horário e preencha seus dados para continuar." });
@@ -507,7 +516,7 @@ export default function PaginaCliente() {
               Enviar confirmação ao PH10
             </a>
             <p className="mt-2 text-xs text-neutral-400">A mensagem será aberta pronta. Revise e toque em enviar no WhatsApp.</p>
-            <button onClick={() => { setReservaConcluida(null); setSelecoes([]); setHorario(""); setNome(""); setWhatsapp(""); setPlanoMensal("comum"); setEstadoIdentificacao("inicial"); setAniversarioAberto(false); setAniversarioEntrada(""); setAniversarioPendente(""); setAniversarioErro(""); }} className="mt-4 w-full rounded-2xl bg-white/10 py-4 text-sm font-black">Voltar ao início</button>
+            <button onClick={() => { setReservaConcluida(null); setSelecoes([]); setHorario(""); setNome(""); setWhatsapp(""); setPlanoMensal("comum"); setClienteBloqueado(false); setEstadoIdentificacao("inicial"); setAniversarioAberto(false); setAniversarioEntrada(""); setAniversarioPendente(""); setAniversarioErro(""); }} className="mt-4 w-full rounded-2xl bg-white/10 py-4 text-sm font-black">Voltar ao início</button>
           </section>
         ) : (
           <div inert={!identificado} aria-hidden={!identificado} className={`transition duration-300 ${!identificado ? "pointer-events-none max-h-[30rem] select-none overflow-hidden opacity-35 blur-[2px] [mask-image:linear-gradient(to_bottom,black_65%,transparent)]" : ""}`}>

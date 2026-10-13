@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Agendamento,
   Cliente,
+  type ClienteBloqueado,
   nomePlanoMensal,
   normalizarWhatsapp,
   obterStatusAtendimento,
@@ -11,7 +12,7 @@ import {
   reservaEstaAtiva,
 } from "@/lib/barber-storage";
 import { criarClienteSupabase } from "@/lib/supabase/client";
-import { buscarAgendamentos, buscarClientes } from "@/lib/supabase/agenda";
+import { buscarAgendamentos, buscarClientes, buscarClientesBloqueados } from "@/lib/supabase/agenda";
 import { formatarAniversario, formatarEntradaAniversario, interpretarAniversario, nomeDoMes } from "@/lib/aniversario";
 import NoticeDialog from "@/components/NoticeDialog";
 
@@ -35,6 +36,7 @@ function formatarWhatsapp(numero: string) {
   const local = normalizarWhatsapp(numero).replace(/^5521/, "");
   return `+55 21 ${local.slice(0, 1)} ${local.slice(1, 5)}-${local.slice(5)}`;
 }
+function somenteDigitosWhatsapp(valor: string) { return valor.replace(/\D/g, "").slice(0, 9); }
 function statusClass(status: string) {
   if (status === "Concluído") return "bg-green-500/10 text-green-300";
   if (status === "Cancelado" || status === "Não compareceu") return "bg-red-500/10 text-red-300";
@@ -44,6 +46,7 @@ function statusClass(status: string) {
 export default function ClientesPage() {
   const [cadastros, setCadastros] = useState<Cliente[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [bloqueiosClientes, setBloqueiosClientes] = useState<ClienteBloqueado[]>([]);
   const [agora, setAgora] = useState(() => Date.now());
   const [clienteHistorico, setClienteHistorico] = useState<ClienteResumo | null>(null);
   const [busca, setBusca] = useState("");
@@ -54,15 +57,23 @@ export default function ClientesPage() {
   const [aniversarioEdicao, setAniversarioEdicao] = useState("");
   const [erroAniversario, setErroAniversario] = useState("");
   const [salvandoAniversario, setSalvandoAniversario] = useState(false);
+  const [bloqueadosAbertos, setBloqueadosAbertos] = useState(false);
+  const [bloqueioFormularioAberto, setBloqueioFormularioAberto] = useState(false);
+  const [whatsappBloqueio, setWhatsappBloqueio] = useState("");
+  const [motivoBloqueio, setMotivoBloqueio] = useState("");
+  const [erroBloqueio, setErroBloqueio] = useState("");
+  const [processandoBloqueio, setProcessandoBloqueio] = useState(false);
+  const [bloqueioParaRemover, setBloqueioParaRemover] = useState<ClienteBloqueado | null>(null);
   const [processando, setProcessando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; descricao: string } | null>(null);
 
   useEffect(() => {
     async function carregar() {
       const supabase = criarClienteSupabase();
-      const [clientesBanco, agendamentosBanco] = await Promise.all([buscarClientes(supabase), buscarAgendamentos(supabase)]);
+      const [clientesBanco, agendamentosBanco, bloqueiosBanco] = await Promise.all([buscarClientes(supabase), buscarAgendamentos(supabase), buscarClientesBloqueados(supabase)]);
       setCadastros(clientesBanco);
       setAgendamentos(agendamentosBanco);
+      setBloqueiosClientes(bloqueiosBanco);
       setAgora(Date.now());
     }
     function fecharComEsc(event: KeyboardEvent) {
@@ -71,15 +82,20 @@ export default function ClientesPage() {
       setClienteMensalista(null);
       setAniversariantesAbertos(false);
       setClienteHistorico(null);
+      setBloqueadosAbertos(false);
+      setBloqueioFormularioAberto(false);
+      setBloqueioParaRemover(null);
     }
     carregar();
     window.addEventListener("ph10:clientes-atualizados", carregar);
     window.addEventListener("ph10:agendamentos-atualizados", carregar);
+    window.addEventListener("ph10:clientes-bloqueados-atualizados", carregar);
     document.addEventListener("keydown", fecharComEsc);
     const intervalo = window.setInterval(() => setAgora(Date.now()), 60_000);
     return () => {
       window.removeEventListener("ph10:clientes-atualizados", carregar);
       window.removeEventListener("ph10:agendamentos-atualizados", carregar);
+      window.removeEventListener("ph10:clientes-bloqueados-atualizados", carregar);
       document.removeEventListener("keydown", fecharComEsc);
       window.clearInterval(intervalo);
     };
@@ -126,6 +142,10 @@ export default function ClientesPage() {
   const aniversariantesDoMes = useMemo(() => clientes
     .filter((cliente) => cliente.aniversarioMes === mesAtual && cliente.aniversarioDia)
     .sort((a, b) => (a.aniversarioDia ?? 0) - (b.aniversarioDia ?? 0) || a.nome.localeCompare(b.nome, "pt-BR")), [clientes, mesAtual]);
+  const whatsappsBloqueados = useMemo(() => new Set(bloqueiosClientes.map((bloqueio) => normalizarWhatsapp(bloqueio.whatsapp))), [bloqueiosClientes]);
+  const bloqueioClienteHistorico = clienteHistorico
+    ? bloqueiosClientes.find((bloqueio) => normalizarWhatsapp(bloqueio.whatsapp) === normalizarWhatsapp(clienteHistorico.whatsapp))
+    : undefined;
 
   async function alternarMensalista() {
     if (!clienteMensalista || processando) return;
@@ -204,6 +224,70 @@ export default function ClientesPage() {
     }
   }
 
+  function abrirFormularioBloqueio(cliente?: Cliente) {
+    setBloqueadosAbertos(false);
+    setClienteHistorico(null);
+    setWhatsappBloqueio(cliente ? normalizarWhatsapp(cliente.whatsapp).replace(/^5521/, "") : "");
+    setMotivoBloqueio("");
+    setErroBloqueio("");
+    setBloqueioFormularioAberto(true);
+  }
+
+  async function salvarBloqueio() {
+    if (processandoBloqueio) return;
+    if (!/^9\d{8}$/.test(whatsappBloqueio)) {
+      setErroBloqueio("Informe um celular válido com 9 dígitos.");
+      return;
+    }
+
+    try {
+      setProcessandoBloqueio(true);
+      setErroBloqueio("");
+      const resposta = await fetch("/api/admin/clientes/bloqueios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsapp: `5521${whatsappBloqueio}`, motivo: motivoBloqueio.trim() }),
+      });
+      const resultado = await resposta.json() as { erro?: string; bloqueio?: { id: string; whatsapp: string; motivo: string; criado_em: string } };
+      if (!resposta.ok) throw new Error(resultado.erro);
+      if (resultado.bloqueio) {
+        const novoBloqueio: ClienteBloqueado = {
+          id: resultado.bloqueio.id,
+          whatsapp: resultado.bloqueio.whatsapp,
+          motivo: resultado.bloqueio.motivo,
+          criadoEm: resultado.bloqueio.criado_em,
+        };
+        setBloqueiosClientes((lista) => [novoBloqueio, ...lista.filter((item) => item.id !== novoBloqueio.id)]);
+      }
+      setBloqueioFormularioAberto(false);
+    } catch (erro) {
+      setErroBloqueio(erro instanceof Error && erro.message ? erro.message : "Não foi possível bloquear o cliente.");
+    } finally {
+      setProcessandoBloqueio(false);
+    }
+  }
+
+  async function removerBloqueio() {
+    if (!bloqueioParaRemover || processandoBloqueio) return;
+    try {
+      setProcessandoBloqueio(true);
+      const resposta = await fetch("/api/admin/clientes/bloqueios", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsapp: bloqueioParaRemover.whatsapp }),
+      });
+      const resultado = await resposta.json() as { erro?: string };
+      if (!resposta.ok) throw new Error(resultado.erro);
+      setBloqueiosClientes((lista) => lista.filter((item) => item.id !== bloqueioParaRemover.id));
+      setBloqueioParaRemover(null);
+    } catch {
+      setBloqueioParaRemover(null);
+      setAviso({ titulo: "Não foi possível desbloquear", descricao: "O bloqueio não foi removido. Tente novamente." });
+    } finally {
+      setProcessandoBloqueio(false);
+    }
+  }
+
   return (
     <main className="app-page">
       <div className="page-wrap">
@@ -219,10 +303,16 @@ export default function ClientesPage() {
             <button type="button" onClick={avancarFiltroPlano} aria-pressed={filtroPlano !== "todos"} aria-label={filtroPlano === "todos" ? "Filtrar mensalistas" : filtroPlano === "mensalista" ? "Filtrar mensalistas plus" : "Mostrar todos os clientes"} title={filtroPlano === "todos" ? "Filtrar mensalistas" : filtroPlano === "mensalista" ? "Filtrar mensalistas plus" : "Mostrar todos"} className={`relative grid w-14 shrink-0 place-items-center rounded-2xl border text-sm font-black transition-colors ${filtroPlano !== "todos" ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-950 text-amber-300 hover:border-amber-400/50"}`}><span className="inline-flex items-start leading-none">M{filtroPlano === "mensalista_plus" && <sup className="-ml-px -translate-y-1 text-[13px] font-black leading-none text-red-600">+</sup>}</span></button>
           </div>
           {filtroPlano !== "todos" && <p className="mt-3 text-xs font-bold text-amber-300">Filtro de {filtroPlano === "mensalista_plus" ? "mensalistas plus" : "mensalistas"} ativo</p>}
-          <button type="button" onClick={() => setAniversariantesAbertos(true)} className="mt-3 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-black transition-colors hover:border-amber-400/40 hover:bg-amber-400/5">
-            <span>Aniversariantes do mês</span>
-            <span className="grid min-w-7 place-items-center rounded-full bg-amber-400 px-2 py-1 text-xs text-neutral-950">{aniversariantesDoMes.length}</span>
-          </button>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button type="button" onClick={() => setAniversariantesAbertos(true)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-black transition-colors hover:border-amber-400/40 hover:bg-amber-400/5">
+              <span>Aniversariantes do mês</span>
+              <span className="grid min-w-7 place-items-center rounded-full bg-amber-400 px-2 py-1 text-xs text-neutral-950">{aniversariantesDoMes.length}</span>
+            </button>
+            <button type="button" onClick={() => setBloqueadosAbertos(true)} className="flex w-full items-center justify-between rounded-2xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-left text-sm font-black transition-colors hover:border-red-400/50 hover:bg-red-400/10">
+              <span>Clientes bloqueados</span>
+              <span className="grid min-w-7 place-items-center rounded-full bg-red-500 px-2 py-1 text-xs text-white">{bloqueiosClientes.length}</span>
+            </button>
+          </div>
         </section>
 
         <section className="mt-5 space-y-3">
@@ -234,7 +324,7 @@ export default function ClientesPage() {
             <article key={cliente.id} className="rounded-[1.75rem] bg-neutral-900 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate text-lg font-black">{cliente.nome}</h2>{cliente.mensalista && <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-400 text-[10px] font-black text-neutral-950" title={nomePlanoMensal(cliente.planoMensal)}><span className="inline-flex items-start leading-none">M{cliente.planoMensal === "mensalista_plus" && <sup className="-ml-px -translate-y-1 text-[10px] font-black leading-none text-red-600">+</sup>}</span></span>}</div><p className="mt-1 text-sm text-neutral-400">{formatarWhatsapp(cliente.whatsapp)}</p><p className="text-sm text-neutral-400">{cliente.ultimoAtendimento ? `Último: ${cliente.ultimoAtendimento}` : "Ainda sem atendimento concluído"}</p></div>
-                <div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => setClienteMensalista(cliente)} aria-label={`Alterar plano de ${cliente.nome}. Plano atual: ${nomePlanoMensal(cliente.planoMensal)}`} title={`Plano atual: ${nomePlanoMensal(cliente.planoMensal)}`} className={`grid h-9 w-9 place-items-center rounded-full border text-xs font-black ${cliente.mensalista ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-white/5 text-neutral-400"}`}><span className="inline-flex items-start leading-none">M{cliente.planoMensal === "mensalista_plus" && <sup className="-ml-px -translate-y-1 text-[12px] font-black leading-none text-red-600">+</sup>}</span></button><span className={`rounded-full px-3 py-1 text-[11px] font-black ${cliente.status === "Ativo" ? "bg-green-500/10 text-green-300" : "bg-yellow-500/10 text-yellow-300"}`}>{cliente.status}</span></div>
+                <div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => setClienteMensalista(cliente)} aria-label={`Alterar plano de ${cliente.nome}. Plano atual: ${nomePlanoMensal(cliente.planoMensal)}`} title={`Plano atual: ${nomePlanoMensal(cliente.planoMensal)}`} className={`grid h-9 w-9 place-items-center rounded-full border text-xs font-black ${cliente.mensalista ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-white/5 text-neutral-400"}`}><span className="inline-flex items-start leading-none">M{cliente.planoMensal === "mensalista_plus" && <sup className="-ml-px -translate-y-1 text-[12px] font-black leading-none text-red-600">+</sup>}</span></button><span className={`rounded-full px-3 py-1 text-[11px] font-black ${whatsappsBloqueados.has(normalizarWhatsapp(cliente.whatsapp)) ? "bg-red-500/10 text-red-300" : cliente.status === "Ativo" ? "bg-green-500/10 text-green-300" : "bg-yellow-500/10 text-yellow-300"}`}>{whatsappsBloqueados.has(normalizarWhatsapp(cliente.whatsapp)) ? "Bloqueado" : cliente.status}</span></div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2"><a href={abrirWhatsapp(cliente)} target="_blank" rel="noreferrer" className="rounded-2xl bg-green-500 px-3 py-3 text-center text-xs font-black text-white">WhatsApp</a><button type="button" onClick={() => setClienteHistorico(cliente)} className="rounded-2xl bg-white/10 px-3 py-3 text-xs font-black">Ver histórico</button></div>
             </article>
@@ -274,7 +364,20 @@ export default function ClientesPage() {
             <div className="mt-4 space-y-2">
               {reservasHistorico.length === 0 ? <p className="rounded-2xl bg-neutral-950 p-4 text-center text-sm text-neutral-400">Nenhuma reserva registrada.</p> : reservasHistorico.map((item) => { const status = obterStatusAtendimento(item, agora); return <div key={item.id} className="rounded-2xl bg-neutral-950 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{formatarData(item.data)} às {item.hora}</p><p className="mt-1 text-sm text-neutral-400">{item.servico}</p>{item.codigo && <p className="mt-1 text-xs text-neutral-500">{item.codigo}</p>}</div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${statusClass(status)}`}>{status}</span></div></div>; })}
             </div>
-            <button type="button" onClick={() => setClienteHistorico(null)} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Fechar</button>
+            {bloqueioClienteHistorico && <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/5 p-4"><p className="text-sm font-black text-red-300">Cliente bloqueado</p>{bloqueioClienteHistorico.motivo && <p className="mt-1 text-sm text-neutral-400">{bloqueioClienteHistorico.motivo}</p>}</div>}
+            <div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={() => setClienteHistorico(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black">Fechar</button>{bloqueioClienteHistorico ? <button type="button" onClick={() => setBloqueioParaRemover(bloqueioClienteHistorico)} className="rounded-2xl bg-red-500 px-4 py-4 text-sm font-black text-white">Desbloquear</button> : <button type="button" onClick={() => abrirFormularioBloqueio(clienteHistorico)} className="rounded-2xl bg-red-500 px-4 py-4 text-sm font-black text-white">Bloquear cliente</button>}</div>
+          </div>
+        </div>
+      )}
+      {bloqueadosAbertos && (
+        <div onClick={() => setBloqueadosAbertos(false)} className="safe-modal-shell fixed inset-0 z-[215] flex items-center justify-center bg-black/70">
+          <div role="dialog" aria-modal="true" aria-labelledby="bloqueados-titulo" onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-md rounded-[2rem] bg-neutral-900 p-5 text-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-red-400">Clientes</p><h2 id="bloqueados-titulo" className="mt-1 text-2xl font-black">Clientes bloqueados</h2></div><button type="button" onClick={() => setBloqueadosAbertos(false)} aria-label="Fechar" className="rounded-full bg-white/10 px-3 py-2 text-sm font-black">×</button></div>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Esses números não conseguem fazer novas reservas. Os agendamentos existentes continuam normalmente.</p>
+            <button type="button" onClick={() => abrirFormularioBloqueio()} className="mt-4 w-full rounded-2xl bg-red-500 px-4 py-4 text-sm font-black text-white">Bloquear número</button>
+            <div className="mt-4 space-y-3">
+              {bloqueiosClientes.length === 0 ? <p className="rounded-2xl bg-neutral-950 p-5 text-center text-sm text-neutral-400">Nenhum número bloqueado.</p> : bloqueiosClientes.map((bloqueio) => { const cliente = clientes.find((item) => normalizarWhatsapp(item.whatsapp) === normalizarWhatsapp(bloqueio.whatsapp)); return <article key={bloqueio.id} className="rounded-2xl bg-neutral-950 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate font-black">{cliente?.nome ?? "Número sem cadastro"}</h3><p className="mt-1 text-sm text-neutral-400">{formatarWhatsapp(bloqueio.whatsapp)}</p>{bloqueio.motivo && <p className="mt-2 text-sm text-neutral-300">{bloqueio.motivo}</p>}<p className="mt-2 text-xs text-neutral-500">Bloqueado em {new Date(bloqueio.criadoEm).toLocaleDateString("pt-BR")}</p></div><button type="button" onClick={() => setBloqueioParaRemover(bloqueio)} className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-xs font-black text-red-300">Desbloquear</button></div></article>; })}
+            </div>
           </div>
         </div>
       )}
@@ -299,6 +402,26 @@ export default function ClientesPage() {
             {erroAniversario && <p className="mt-3 text-sm text-red-300">{erroAniversario}</p>}
             <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={salvandoAniversario} onClick={() => setClienteAniversario(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:opacity-50">Cancelar</button><button type="submit" disabled={salvandoAniversario} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:opacity-50">{salvandoAniversario ? "Salvando..." : "Salvar"}</button></div>
           </form>
+        </div>
+      )}
+      {bloqueioFormularioAberto && (
+        <div onClick={() => !processandoBloqueio && setBloqueioFormularioAberto(false)} className="safe-modal-shell fixed inset-0 z-[370] flex items-center justify-center bg-black/75 backdrop-blur-sm">
+          <form onSubmit={(event) => { event.preventDefault(); void salvarBloqueio(); }} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="bloquear-cliente-titulo" className="safe-modal-card w-full max-w-sm rounded-[2rem] border border-red-400/20 bg-neutral-900 p-6 text-white shadow-2xl">
+            <p className="text-xs font-black uppercase tracking-[.18em] text-red-400">Acesso às reservas</p><h2 id="bloquear-cliente-titulo" className="mt-2 text-2xl font-black">Bloquear cliente</h2>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">O cliente verá os horários como indisponíveis. Ele não receberá nenhum aviso de bloqueio e as reservas existentes serão mantidas.</p>
+            <label className="mt-5 block"><span className="text-xs font-bold text-neutral-400">WhatsApp</span><div className="mt-2 flex items-center rounded-2xl bg-neutral-950 px-4 focus-within:ring-2 focus-within:ring-red-400"><span className="shrink-0 text-sm font-bold text-neutral-400">+55 21</span><input autoFocus value={whatsappBloqueio} onChange={(event) => { setWhatsappBloqueio(somenteDigitosWhatsapp(event.target.value)); setErroBloqueio(""); }} placeholder="999999999" inputMode="numeric" maxLength={9} className="min-w-0 flex-1 bg-transparent px-3 py-4 text-base font-bold outline-none" /></div></label>
+            <label className="mt-4 block"><span className="text-xs font-bold text-neutral-400">Motivo interno (opcional)</span><textarea value={motivoBloqueio} onChange={(event) => setMotivoBloqueio(event.target.value.slice(0, 300))} maxLength={300} rows={3} placeholder="Somente o dono verá esta informação" className="mt-2 w-full resize-none rounded-2xl bg-neutral-950 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-red-400" /><span className="mt-1 block text-right text-[11px] text-neutral-500">{motivoBloqueio.length}/300</span></label>
+            {erroBloqueio && <p className="mt-3 text-sm text-red-300">{erroBloqueio}</p>}
+            <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={processandoBloqueio} onClick={() => setBloqueioFormularioAberto(false)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:opacity-50">Cancelar</button><button type="submit" disabled={processandoBloqueio} className="rounded-2xl bg-red-500 px-4 py-4 text-sm font-black text-white disabled:opacity-50">{processandoBloqueio ? "Bloqueando..." : "Bloquear cliente"}</button></div>
+          </form>
+        </div>
+      )}
+      {bloqueioParaRemover && (
+        <div onClick={() => !processandoBloqueio && setBloqueioParaRemover(null)} className="fixed inset-0 z-[290] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="desbloquear-cliente-titulo" className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-center text-white shadow-2xl">
+            <h2 id="desbloquear-cliente-titulo" className="text-2xl font-black">Desbloquear cliente?</h2><p className="mt-2 text-sm leading-relaxed text-neutral-400">O número {formatarWhatsapp(bloqueioParaRemover.whatsapp)} voltará a enxergar e reservar horários disponíveis.</p>
+            <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={processandoBloqueio} onClick={() => setBloqueioParaRemover(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:opacity-50">Cancelar</button><button type="button" disabled={processandoBloqueio} onClick={() => void removerBloqueio()} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:opacity-50">{processandoBloqueio ? "Salvando..." : "Desbloquear"}</button></div>
+          </div>
         </div>
       )}
       {aviso && <NoticeDialog titulo={aviso.titulo} descricao={aviso.descricao} onFechar={() => setAviso(null)} />}

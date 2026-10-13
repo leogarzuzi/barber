@@ -34,6 +34,12 @@ export type Cliente = {
   criadoEm: string;
   atualizadoEm: string;
 };
+export type ClienteBloqueado = {
+  id: string;
+  whatsapp: string;
+  motivo: string;
+  criadoEm: string;
+};
 export type AlteracaoAgendamento = {
   id: string;
   tipo: "Criada" | "Remarcada" | "Cancelada" | "Falta" | "Status alterado";

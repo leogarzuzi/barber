@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Agendamento, BloqueioAgenda, Cliente, PlanoMensal } from "@/lib/barber-storage";
+import type { Agendamento, BloqueioAgenda, Cliente, ClienteBloqueado, PlanoMensal } from "@/lib/barber-storage";
 
 function horaCurta(hora: string) { return hora.slice(0, 5); }
 
@@ -37,6 +37,20 @@ export async function buscarClientes(supabase: SupabaseClient) {
     const planoMensal = item.plano_mensal as PlanoMensal;
     return { id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, aniversarioDia: item.aniversario_dia ?? undefined, aniversarioMes: item.aniversario_mes ?? undefined, planoMensal, mensalista: planoMensal !== "comum", mensalidade: item.mensalidade_centavos / 100, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em };
   });
+}
+
+export async function buscarClientesBloqueados(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("clientes_bloqueados")
+    .select("id, whatsapp, motivo, criado_em")
+    .order("criado_em", { ascending: false });
+  if (error) throw error;
+  return data.map<ClienteBloqueado>((item) => ({
+    id: item.id,
+    whatsapp: item.whatsapp,
+    motivo: item.motivo,
+    criadoEm: item.criado_em,
+  }));
 }
 
 export async function atualizarAgendamento(item: Agendamento) {

@@ -26,17 +26,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: "WhatsApp inválido." }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("nome, plano_mensal, aniversario_dia, aniversario_mes")
-      .eq("whatsapp", whatsapp)
-      .maybeSingle();
-    if (error) throw error;
+    const [resultadoCliente, resultadoBloqueio] = await Promise.all([
+      supabase
+        .from("clientes")
+        .select("nome, plano_mensal, aniversario_dia, aniversario_mes")
+        .eq("whatsapp", whatsapp)
+        .maybeSingle(),
+      supabase
+        .from("clientes_bloqueados")
+        .select("id")
+        .eq("whatsapp", whatsapp)
+        .maybeSingle(),
+    ]);
+    if (resultadoCliente.error) throw resultadoCliente.error;
+    if (resultadoBloqueio.error) throw resultadoBloqueio.error;
+    const data = resultadoCliente.data;
+    const bloqueado = Boolean(resultadoBloqueio.data);
 
     return NextResponse.json(
       data
-        ? { encontrado: true, nome: data.nome, planoMensal: data.plano_mensal, aniversarioCadastrado: Boolean(data.aniversario_dia && data.aniversario_mes) }
-        : { encontrado: false, planoMensal: "comum", aniversarioCadastrado: false },
+        ? { encontrado: true, nome: data.nome, planoMensal: data.plano_mensal, aniversarioCadastrado: Boolean(data.aniversario_dia && data.aniversario_mes), bloqueado }
+        : { encontrado: false, planoMensal: "comum", aniversarioCadastrado: false, bloqueado },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (erro) {
