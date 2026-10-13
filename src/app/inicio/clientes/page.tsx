@@ -12,6 +12,7 @@ import {
 } from "@/lib/barber-storage";
 import { criarClienteSupabase } from "@/lib/supabase/client";
 import { buscarAgendamentos, buscarClientes } from "@/lib/supabase/agenda";
+import { formatarAniversario, formatarEntradaAniversario, interpretarAniversario, nomeDoMes } from "@/lib/aniversario";
 import NoticeDialog from "@/components/NoticeDialog";
 
 type ClienteResumo = Cliente & {
@@ -43,11 +44,16 @@ function statusClass(status: string) {
 export default function ClientesPage() {
   const [cadastros, setCadastros] = useState<Cliente[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
-  const [agora, setAgora] = useState(0);
+  const [agora, setAgora] = useState(() => Date.now());
   const [clienteHistorico, setClienteHistorico] = useState<ClienteResumo | null>(null);
   const [busca, setBusca] = useState("");
   const [filtroPlano, setFiltroPlano] = useState<FiltroPlano>("todos");
   const [clienteMensalista, setClienteMensalista] = useState<ClienteResumo | null>(null);
+  const [aniversariantesAbertos, setAniversariantesAbertos] = useState(false);
+  const [clienteAniversario, setClienteAniversario] = useState<ClienteResumo | null>(null);
+  const [aniversarioEdicao, setAniversarioEdicao] = useState("");
+  const [erroAniversario, setErroAniversario] = useState("");
+  const [salvandoAniversario, setSalvandoAniversario] = useState(false);
   const [processando, setProcessando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; descricao: string } | null>(null);
 
@@ -60,7 +66,11 @@ export default function ClientesPage() {
       setAgora(Date.now());
     }
     function fecharComEsc(event: KeyboardEvent) {
-      if (event.key === "Escape") setClienteHistorico(null);
+      if (event.key !== "Escape") return;
+      setClienteAniversario(null);
+      setClienteMensalista(null);
+      setAniversariantesAbertos(false);
+      setClienteHistorico(null);
     }
     carregar();
     window.addEventListener("ph10:clientes-atualizados", carregar);
@@ -112,6 +122,10 @@ export default function ClientesPage() {
   }, [clientes, busca, filtroPlano]);
 
   const planoDestino = clienteMensalista ? proximoPlano(clienteMensalista.planoMensal) : "comum";
+  const mesAtual = new Date(agora).getMonth() + 1;
+  const aniversariantesDoMes = useMemo(() => clientes
+    .filter((cliente) => cliente.aniversarioMes === mesAtual && cliente.aniversarioDia)
+    .sort((a, b) => (a.aniversarioDia ?? 0) - (b.aniversarioDia ?? 0) || a.nome.localeCompare(b.nome, "pt-BR")), [clientes, mesAtual]);
 
   async function alternarMensalista() {
     if (!clienteMensalista || processando) return;
@@ -145,6 +159,51 @@ export default function ClientesPage() {
     return `https://wa.me/${normalizarWhatsapp(cliente.whatsapp)}?text=${mensagem}`;
   }
 
+  function abrirWhatsappAniversario(cliente: Cliente) {
+    const primeiroNome = cliente.nome.trim().split(/\s+/)[0];
+    const mensagem = encodeURIComponent(`Olá, ${primeiroNome}! A PH10 deseja um feliz aniversário. Que seu novo ciclo seja excelente!`);
+    return `https://wa.me/${normalizarWhatsapp(cliente.whatsapp)}?text=${mensagem}`;
+  }
+
+  function abrirEdicaoAniversario(cliente: ClienteResumo) {
+    setClienteAniversario(cliente);
+    setAniversarioEdicao(formatarAniversario(cliente.aniversarioDia, cliente.aniversarioMes) ?? "");
+    setErroAniversario("");
+  }
+
+  async function salvarEdicaoAniversario() {
+    if (!clienteAniversario || salvandoAniversario) return;
+    const aniversario = interpretarAniversario(aniversarioEdicao);
+    if (!aniversario) {
+      setErroAniversario("Informe uma data válida no formato DD/MM.");
+      return;
+    }
+
+    try {
+      setSalvandoAniversario(true);
+      setErroAniversario("");
+      const aniversarioFormatado = `${String(aniversario.dia).padStart(2, "0")}/${String(aniversario.mes).padStart(2, "0")}`;
+      const resposta = await fetch(`/api/admin/clientes/${encodeURIComponent(clienteAniversario.id)}/aniversario`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aniversario: aniversarioFormatado }),
+      });
+      const resultado = await resposta.json() as { erro?: string };
+      if (!resposta.ok) throw new Error(resultado.erro);
+      const atualizar = <T extends Cliente>(cliente: T): T => cliente.id === clienteAniversario.id
+        ? { ...cliente, aniversarioDia: aniversario.dia, aniversarioMes: aniversario.mes }
+        : cliente;
+      setCadastros((lista) => lista.map(atualizar));
+      setClienteHistorico((cliente) => cliente ? atualizar(cliente) : null);
+      window.dispatchEvent(new Event("ph10:clientes-atualizados"));
+      setClienteAniversario(null);
+    } catch (erro) {
+      setErroAniversario(erro instanceof Error && erro.message ? erro.message : "Não foi possível salvar a data.");
+    } finally {
+      setSalvandoAniversario(false);
+    }
+  }
+
   return (
     <main className="app-page">
       <div className="page-wrap">
@@ -160,6 +219,10 @@ export default function ClientesPage() {
             <button type="button" onClick={avancarFiltroPlano} aria-pressed={filtroPlano !== "todos"} aria-label={filtroPlano === "todos" ? "Filtrar mensalistas" : filtroPlano === "mensalista" ? "Filtrar mensalistas plus" : "Mostrar todos os clientes"} title={filtroPlano === "todos" ? "Filtrar mensalistas" : filtroPlano === "mensalista" ? "Filtrar mensalistas plus" : "Mostrar todos"} className={`relative grid w-14 shrink-0 place-items-center rounded-2xl border text-sm font-black transition-colors ${filtroPlano !== "todos" ? "border-amber-400 bg-amber-400 text-neutral-950" : "border-white/10 bg-neutral-950 text-amber-300 hover:border-amber-400/50"}`}><span className="inline-flex items-start leading-none">M{filtroPlano === "mensalista_plus" && <sup className="-ml-px -translate-y-1 text-[13px] font-black leading-none text-red-600">+</sup>}</span></button>
           </div>
           {filtroPlano !== "todos" && <p className="mt-3 text-xs font-bold text-amber-300">Filtro de {filtroPlano === "mensalista_plus" ? "mensalistas plus" : "mensalistas"} ativo</p>}
+          <button type="button" onClick={() => setAniversariantesAbertos(true)} className="mt-3 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-black transition-colors hover:border-amber-400/40 hover:bg-amber-400/5">
+            <span>Aniversariantes do mês</span>
+            <span className="grid min-w-7 place-items-center rounded-full bg-amber-400 px-2 py-1 text-xs text-neutral-950">{aniversariantesDoMes.length}</span>
+          </button>
         </section>
 
         <section className="mt-5 space-y-3">
@@ -179,11 +242,35 @@ export default function ClientesPage() {
         </section>
       </div>
 
+      {aniversariantesAbertos && (
+        <div onClick={() => setAniversariantesAbertos(false)} className="safe-modal-shell fixed inset-0 z-[210] flex items-end justify-center bg-black/70 lg:items-center">
+          <div role="dialog" aria-modal="true" aria-labelledby="aniversariantes-titulo" onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-md rounded-[2rem] bg-neutral-900 p-5 text-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div><p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Clientes</p><h2 id="aniversariantes-titulo" className="mt-1 text-2xl font-black">Aniversariantes de {nomeDoMes(mesAtual)}</h2></div>
+              <button type="button" onClick={() => setAniversariantesAbertos(false)} aria-label="Fechar" className="rounded-full bg-white/10 px-3 py-2 text-sm font-black">×</button>
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">{aniversariantesDoMes.length === 1 ? "1 cliente faz aniversário neste mês." : `${aniversariantesDoMes.length} clientes fazem aniversário neste mês.`}</p>
+            <div className="mt-5 space-y-3">
+              {aniversariantesDoMes.length === 0 ? (
+                <p className="rounded-2xl bg-neutral-950 p-5 text-center text-sm text-neutral-400">Nenhum aniversário cadastrado para este mês.</p>
+              ) : aniversariantesDoMes.map((cliente) => (
+                <article key={cliente.id} className="rounded-2xl bg-neutral-950 p-4">
+                  <div className="flex items-start justify-between gap-4"><div className="min-w-0"><h3 className="truncate font-black">{cliente.nome}</h3><p className="mt-1 text-sm text-neutral-400">{formatarWhatsapp(cliente.whatsapp)}</p></div><strong className="shrink-0 text-lg text-amber-400">{formatarAniversario(cliente.aniversarioDia, cliente.aniversarioMes)}</strong></div>
+                  <div className="mt-3 grid grid-cols-2 gap-2"><a href={abrirWhatsappAniversario(cliente)} target="_blank" rel="noreferrer" className="rounded-xl bg-green-500 px-3 py-3 text-center text-xs font-black text-white">Enviar mensagem</a><button type="button" onClick={() => abrirEdicaoAniversario(cliente)} className="rounded-xl bg-white/10 px-3 py-3 text-xs font-black">Editar data</button></div>
+                </article>
+              ))}
+            </div>
+            <button type="button" onClick={() => setAniversariantesAbertos(false)} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950">Fechar</button>
+          </div>
+        </div>
+      )}
+
       {clienteHistorico && (
         <div onClick={() => setClienteHistorico(null)} className="safe-modal-shell fixed inset-0 z-[200] flex items-end justify-center bg-black/70 lg:items-center">
           <div onClick={(event) => event.stopPropagation()} className="safe-modal-card w-full max-w-md rounded-[2rem] bg-neutral-900 p-5 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-4"><div><h2 className="text-2xl font-black">Histórico</h2><p className="mt-1 text-sm text-neutral-400">{clienteHistorico.nome}</p></div><button type="button" onClick={() => setClienteHistorico(null)} className="rounded-full bg-white/10 px-3 py-2 text-sm font-black">×</button></div>
             <div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-neutral-950 p-4"><p className="text-xs text-neutral-400">Visitas concluídas</p><p className="mt-1 text-2xl font-black text-amber-400">{clienteHistorico.totalVisitas}</p></div><div className="rounded-2xl bg-neutral-950 p-4"><p className="text-xs text-neutral-400">Último serviço</p><p className="mt-1 text-sm font-bold">{clienteHistorico.ultimoServico ?? "Nenhum"}</p></div></div>
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl bg-neutral-950 p-4"><div><p className="text-xs text-neutral-400">Aniversário</p><p className="mt-1 font-black">{formatarAniversario(clienteHistorico.aniversarioDia, clienteHistorico.aniversarioMes) ?? "Não informado"}</p></div><button type="button" onClick={() => abrirEdicaoAniversario(clienteHistorico)} className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-xs font-black">{clienteHistorico.aniversarioDia ? "Editar data" : "Adicionar data"}</button></div>
             <div className="mt-4 space-y-2">
               {reservasHistorico.length === 0 ? <p className="rounded-2xl bg-neutral-950 p-4 text-center text-sm text-neutral-400">Nenhuma reserva registrada.</p> : reservasHistorico.map((item) => { const status = obterStatusAtendimento(item, agora); return <div key={item.id} className="rounded-2xl bg-neutral-950 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{formatarData(item.data)} às {item.hora}</p><p className="mt-1 text-sm text-neutral-400">{item.servico}</p>{item.codigo && <p className="mt-1 text-xs text-neutral-500">{item.codigo}</p>}</div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${statusClass(status)}`}>{status}</span></div></div>; })}
             </div>
@@ -200,6 +287,18 @@ export default function ClientesPage() {
             {planoDestino !== "comum" && <div className="mt-5 rounded-2xl bg-neutral-950 p-4 text-left"><p className="text-[10px] font-black uppercase tracking-[.18em] text-amber-400">Benefícios do plano</p><ul className="mt-3 space-y-2 text-sm text-neutral-300"><li>• Até 5 reservas simultâneas</li><li>• Uma reserva por dia</li><li>• {planoDestino === "mensalista_plus" ? "Qualquer dia em que a loja esteja aberta" : "Reservas de segunda a quinta"}</li><li>• Serviços inclusos por <strong className="text-white">{planoDestino === "mensalista_plus" ? "R$ 180" : "R$ 160"}/mês</strong></li></ul></div>}
             <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={processando} onClick={() => setClienteMensalista(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:opacity-50">Cancelar</button><button type="button" disabled={processando} onClick={alternarMensalista} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:opacity-50">{processando ? "Salvando..." : "Confirmar"}</button></div>
           </div>
+        </div>
+      )}
+      {clienteAniversario && (
+        <div onClick={() => !salvandoAniversario && setClienteAniversario(null)} className="fixed inset-0 z-[260] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <form onSubmit={(event) => { event.preventDefault(); void salvarEdicaoAniversario(); }} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="editar-aniversario-titulo" className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-white shadow-2xl">
+            <p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">{clienteAniversario.nome}</p>
+            <h2 id="editar-aniversario-titulo" className="mt-2 text-2xl font-black">Editar aniversário</h2>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Informe apenas o dia e o mês.</p>
+            <label className="mt-5 block"><span className="text-xs font-bold text-neutral-400">Data de aniversário</span><input autoFocus value={aniversarioEdicao} onChange={(event) => { setAniversarioEdicao(formatarEntradaAniversario(event.target.value)); setErroAniversario(""); }} placeholder="DD/MM" inputMode="numeric" maxLength={5} className="mt-2 w-full rounded-2xl bg-neutral-950 px-4 py-4 text-center text-xl font-black tracking-widest outline-none focus:ring-2 focus:ring-amber-400" /></label>
+            {erroAniversario && <p className="mt-3 text-sm text-red-300">{erroAniversario}</p>}
+            <div className="mt-6 grid grid-cols-2 gap-3"><button type="button" disabled={salvandoAniversario} onClick={() => setClienteAniversario(null)} className="rounded-2xl bg-white/10 px-4 py-4 text-sm font-black disabled:opacity-50">Cancelar</button><button type="submit" disabled={salvandoAniversario} className="rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:opacity-50">{salvandoAniversario ? "Salvando..." : "Salvar"}</button></div>
+          </form>
         </div>
       )}
       {aviso && <NoticeDialog titulo={aviso.titulo} descricao={aviso.descricao} onFechar={() => setAviso(null)} />}

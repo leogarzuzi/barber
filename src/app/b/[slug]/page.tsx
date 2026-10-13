@@ -18,6 +18,7 @@ import {
   temPlanoMensal,
 } from "@/lib/barber-storage";
 import { intervalosSeSobrepoem, planoPermiteDia } from "@/lib/agenda-rules.mjs";
+import { formatarEntradaAniversario, interpretarAniversario } from "@/lib/aniversario";
 
 const idsDosDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
 type EstadoIdentificacao = "inicial" | "verificando" | "cadastrado" | "novo" | "erro";
@@ -76,6 +77,11 @@ export default function PaginaCliente() {
   const [whatsapp, setWhatsapp] = useState("");
   const [estadoIdentificacao, setEstadoIdentificacao] = useState<EstadoIdentificacao>("inicial");
   const [planoMensal, setPlanoMensal] = useState<PlanoMensal>("comum");
+  const [aniversarioAberto, setAniversarioAberto] = useState(false);
+  const [aniversarioEntrada, setAniversarioEntrada] = useState("");
+  const [aniversarioPendente, setAniversarioPendente] = useState("");
+  const [aniversarioErro, setAniversarioErro] = useState("");
+  const [salvandoAniversario, setSalvandoAniversario] = useState(false);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [bloqueios, setBloqueios] = useState<BloqueioAgenda[]>([]);
   const [servicos, setServicos] = useState<Servico[]>([]);
@@ -188,8 +194,11 @@ export default function PaginaCliente() {
           cache: "no-store",
           signal: controle.signal,
         });
-        const resultado = await resposta.json() as { encontrado?: boolean; nome?: string; planoMensal?: PlanoMensal; erro?: string };
+        const resultado = await resposta.json() as { encontrado?: boolean; nome?: string; planoMensal?: PlanoMensal; aniversarioCadastrado?: boolean; erro?: string };
         if (!resposta.ok) throw new Error(resultado.erro);
+        setAniversarioEntrada("");
+        setAniversarioPendente("");
+        setAniversarioErro("");
         if (resultado.encontrado && resultado.nome) {
           setNome(resultado.nome);
           setPlanoMensal(resultado.planoMensal ?? "comum");
@@ -199,6 +208,7 @@ export default function PaginaCliente() {
           setPlanoMensal("comum");
           setEstadoIdentificacao("novo");
         }
+        setAniversarioAberto(!resultado.aniversarioCadastrado);
       } catch {
         if (controle.signal.aborted) return;
         setEstadoIdentificacao("erro");
@@ -288,6 +298,10 @@ export default function PaginaCliente() {
     setEstadoIdentificacao("inicial");
     setPlanoMensal("comum");
     setNome("");
+    setAniversarioAberto(false);
+    setAniversarioEntrada("");
+    setAniversarioPendente("");
+    setAniversarioErro("");
     setSelecoes([]);
     setHorario("");
     setDia(proximosDias(1)[0].data);
@@ -299,6 +313,47 @@ export default function PaginaCliente() {
       return;
     }
     setAvisoFormulario(null);
+  }
+
+  async function salvarAniversario() {
+    const aniversario = interpretarAniversario(aniversarioEntrada);
+    if (!aniversario) {
+      setAniversarioErro("Informe uma data válida no formato DD/MM.");
+      return;
+    }
+
+    const aniversarioFormatado = `${String(aniversario.dia).padStart(2, "0")}/${String(aniversario.mes).padStart(2, "0")}`;
+    if (estadoIdentificacao === "novo") {
+      setAniversarioPendente(aniversarioFormatado);
+      setAniversarioAberto(false);
+      setAniversarioErro("");
+      return;
+    }
+
+    try {
+      setSalvandoAniversario(true);
+      setAniversarioErro("");
+      const resposta = await fetch("/api/public/clientes/identificar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ whatsapp: `5521${whatsapp}`, aniversario: aniversarioFormatado }),
+      });
+      const resultado = await resposta.json() as { salvo?: boolean; erro?: string };
+      if (!resposta.ok || !resultado.salvo) throw new Error(resultado.erro);
+      setAniversarioPendente(aniversarioFormatado);
+      setAniversarioAberto(false);
+    } catch (erro) {
+      setAniversarioErro(erro instanceof Error && erro.message ? erro.message : "Não foi possível salvar agora. Tente novamente.");
+    } finally {
+      setSalvandoAniversario(false);
+    }
+  }
+
+  function adiarAniversario() {
+    if (salvandoAniversario) return;
+    setAniversarioPendente("");
+    setAniversarioErro("");
+    setAniversarioAberto(false);
   }
 
   async function agendar() {
@@ -323,7 +378,7 @@ export default function PaginaCliente() {
     setProcessandoReserva(true);
 
     try {
-      const resposta = await fetch("/api/public/reservas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: nome.trim(), whatsapp: numeroCompletoCliente, itens, data: diaSelecionado, hora: horario }) });
+      const resposta = await fetch("/api/public/reservas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: nome.trim(), whatsapp: numeroCompletoCliente, ...(aniversarioPendente ? { aniversario: aniversarioPendente } : {}), itens, data: diaSelecionado, hora: horario }) });
       const resultado = await resposta.json() as { reserva?: Agendamento; erro?: string };
       if (!resposta.ok || !resultado.reserva) {
         setHorario("");
@@ -452,7 +507,7 @@ export default function PaginaCliente() {
               Enviar confirmação ao PH10
             </a>
             <p className="mt-2 text-xs text-neutral-400">A mensagem será aberta pronta. Revise e toque em enviar no WhatsApp.</p>
-            <button onClick={() => { setReservaConcluida(null); setSelecoes([]); setHorario(""); setNome(""); setWhatsapp(""); setPlanoMensal("comum"); setEstadoIdentificacao("inicial"); }} className="mt-4 w-full rounded-2xl bg-white/10 py-4 text-sm font-black">Voltar ao início</button>
+            <button onClick={() => { setReservaConcluida(null); setSelecoes([]); setHorario(""); setNome(""); setWhatsapp(""); setPlanoMensal("comum"); setEstadoIdentificacao("inicial"); setAniversarioAberto(false); setAniversarioEntrada(""); setAniversarioPendente(""); setAniversarioErro(""); }} className="mt-4 w-full rounded-2xl bg-white/10 py-4 text-sm font-black">Voltar ao início</button>
           </section>
         ) : (
           <div inert={!identificado} aria-hidden={!identificado} className={`transition duration-300 ${!identificado ? "pointer-events-none max-h-[30rem] select-none overflow-hidden opacity-35 blur-[2px] [mask-image:linear-gradient(to_bottom,black_65%,transparent)]" : ""}`}>
@@ -490,6 +545,23 @@ export default function PaginaCliente() {
               <a href={linkPedidoRemarcacao(reservaExistenteAviso)} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded-2xl bg-green-500 px-4 py-4 text-sm font-black text-white">Falar com a PH10</a>
             </div>
           </div>
+        </div>
+      )}
+
+      {aniversarioAberto && (
+        <div className="safe-modal-shell fixed inset-0 z-[320] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <form onSubmit={(event) => { event.preventDefault(); void salvarAniversario(); }} role="dialog" aria-modal="true" aria-labelledby="aniversario-titulo" className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-neutral-900 p-6 text-white shadow-2xl">
+            <p className="text-xs font-black uppercase tracking-[.18em] text-amber-400">Seu cadastro</p>
+            <h2 id="aniversario-titulo" className="mt-2 text-2xl font-black">Quando é seu aniversário?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-400">Informe apenas o dia e o mês. Depois de salvo, esse pedido não aparecerá novamente.</p>
+            <label className="mt-5 block">
+              <span className="text-xs font-bold text-neutral-400">Data de aniversário</span>
+              <input autoFocus value={aniversarioEntrada} onChange={(event) => { setAniversarioEntrada(formatarEntradaAniversario(event.target.value)); setAniversarioErro(""); }} placeholder="DD/MM" inputMode="numeric" autoComplete="bday-day" maxLength={5} className="mt-2 w-full rounded-2xl bg-neutral-950 px-4 py-4 text-center text-xl font-black tracking-widest outline-none focus:ring-2 focus:ring-amber-400" />
+            </label>
+            {aniversarioErro && <p className="mt-3 text-sm text-red-300">{aniversarioErro}</p>}
+            <button type="submit" disabled={salvandoAniversario} className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-4 text-sm font-black text-neutral-950 disabled:cursor-wait disabled:opacity-60">{salvandoAniversario ? "Salvando..." : "Salvar aniversário"}</button>
+            <button type="button" disabled={salvandoAniversario} onClick={adiarAniversario} className="mt-2 w-full rounded-2xl bg-white/5 px-4 py-3 text-sm font-black text-neutral-300 disabled:opacity-60">Agora não</button>
+          </form>
         </div>
       )}
 

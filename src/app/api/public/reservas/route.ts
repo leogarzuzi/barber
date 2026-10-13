@@ -7,6 +7,7 @@ import { intervalosSeSobrepoem, planoPermiteDia, validarAlteracaoReservaCliente,
 import { chaveRateLimit, consumirRateLimit, ipDaRequisicao, limparRateLimit, respostaBloqueada } from "@/lib/supabase/rate-limit";
 import { sincronizarAgendamentoGoogle } from "@/lib/google-calendar/sync";
 import { gerarProtocolo } from "@/lib/protocolo.mjs";
+import { interpretarAniversario } from "@/lib/aniversario";
 import { temPlanoMensal, type PlanoMensal } from "@/lib/barber-storage";
 
 const idsDias = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
@@ -74,8 +75,10 @@ export async function POST(request: NextRequest) {
     const supabase = criarClienteSupabaseAdmin();
     const limiteIp = await consumirRateLimit(supabase, chaveRateLimit("criar-reserva-ip", ipDaRequisicao(request)), { limite: 8, janelaSegundos: 600, bloqueioSegundos: 900 });
     if (!limiteIp.permitido) return respostaBloqueada(limiteIp.tentar_em);
-    const corpo = await request.json() as { nome: string; whatsapp: string; itens: Array<{ tipo: "servico" | "combo"; id: string }>; data: string; hora: string };
+    const corpo = await request.json() as { nome: string; whatsapp: string; aniversario?: string; itens: Array<{ tipo: "servico" | "combo"; id: string }>; data: string; hora: string };
     if (!/^55219\d{8}$/.test(corpo.whatsapp ?? "")) throw new Error("dados");
+    const aniversario = corpo.aniversario === undefined ? null : interpretarAniversario(corpo.aniversario);
+    if (corpo.aniversario !== undefined && !aniversario) throw new Error("dados");
     const limiteTelefone = await consumirRateLimit(supabase, chaveRateLimit("criar-reserva-whatsapp", corpo.whatsapp), { limite: 6, janelaSegundos: 3600, bloqueioSegundos: 3600 });
     if (!limiteTelefone.permitido) return respostaBloqueada(limiteTelefone.tentar_em);
     const [catalogo, configBanco, bloqueios, reservas, resultadoCliente] = await Promise.all([
@@ -83,7 +86,7 @@ export async function POST(request: NextRequest) {
       buscarConfiguracao(supabase),
       buscarBloqueios(supabase),
       buscarAgendamentos(supabase),
-      supabase.from("clientes").select("id, nome, plano_mensal").eq("whatsapp", corpo.whatsapp).maybeSingle(),
+      supabase.from("clientes").select("id, nome, plano_mensal, aniversario_dia, aniversario_mes").eq("whatsapp", corpo.whatsapp).maybeSingle(),
     ]);
     if (resultadoCliente.error) throw resultadoCliente.error;
     const clienteExistente = resultadoCliente.data;
@@ -112,7 +115,23 @@ export async function POST(request: NextRequest) {
     if (limiteReservas === "reserva-existente") return NextResponse.json({ erro: "Este WhatsApp já possui uma reserva ativa." }, { status: 409 });
     if (limiteReservas === "limite-mensalista") return NextResponse.json({ erro: "Você já possui o limite de 5 reservas futuras." }, { status: 409 });
     if (limiteReservas === "mesmo-dia") return NextResponse.json({ erro: "Mensalistas podem manter apenas uma reserva por dia." }, { status: 409 });
-    const { data: cliente, error: erroCliente } = await supabase.from("clientes").upsert({ nome: nomeCliente, whatsapp: corpo.whatsapp }, { onConflict: "whatsapp" }).select("id").single();
+    const dadosAniversario = aniversario ? { aniversario_dia: aniversario.dia, aniversario_mes: aniversario.mes } : {};
+    const operacaoCliente = clienteExistente
+      ? supabase
+        .from("clientes")
+        .update({
+          nome: nomeCliente,
+          ...(!clienteExistente.aniversario_dia && !clienteExistente.aniversario_mes ? dadosAniversario : {}),
+        })
+        .eq("id", clienteExistente.id)
+        .select("id")
+        .single()
+      : supabase
+        .from("clientes")
+        .insert({ nome: nomeCliente, whatsapp: corpo.whatsapp, ...dadosAniversario })
+        .select("id")
+        .single();
+    const { data: cliente, error: erroCliente } = await operacaoCliente;
     if (erroCliente) throw erroCliente;
     const historico = [{ id: crypto.randomUUID(), tipo: "Criada", origem: "Cliente", realizadaEm: new Date().toISOString(), dataNova: corpo.data, horaNova: corpo.hora }];
     const { data: criada, error } = await supabase.from("agendamentos").insert({ protocolo: gerarProtocolo(), cliente_id: cliente.id, cliente_nome: nomeCliente, whatsapp: corpo.whatsapp, item_tipo: itemTipo, servico_id: itemTipo === "servico" ? corpo.itens[0].id : null, combo_id: itemTipo === "combo" ? corpo.itens[0].id : null, item_nome: item.nome, data: corpo.data, hora: corpo.hora, duracao_minutos: intervalo, valor_centavos: mensalista ? 0 : Math.round(item.valor * 100), coberto_por_mensalidade: mensalista, historico }).select("id").single();

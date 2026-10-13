@@ -26,6 +26,8 @@ export type Cliente = {
   nome: string;
   whatsapp: string;
   email?: string;
+  aniversarioDia?: number;
+  aniversarioMes?: number;
   planoMensal: PlanoMensal;
   mensalista: boolean;
   mensalidade: number;

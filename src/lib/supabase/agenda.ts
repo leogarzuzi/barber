@@ -31,11 +31,11 @@ export async function buscarBloqueios(supabase: SupabaseClient) {
 }
 
 export async function buscarClientes(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("clientes").select("id, nome, whatsapp, email, plano_mensal, mensalista, mensalidade_centavos, criado_em, atualizado_em").order("atualizado_em", { ascending: false });
+  const { data, error } = await supabase.from("clientes").select("id, nome, whatsapp, email, aniversario_dia, aniversario_mes, plano_mensal, mensalista, mensalidade_centavos, criado_em, atualizado_em").order("atualizado_em", { ascending: false });
   if (error) throw error;
   return data.map<Cliente>((item) => {
     const planoMensal = item.plano_mensal as PlanoMensal;
-    return { id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, planoMensal, mensalista: planoMensal !== "comum", mensalidade: item.mensalidade_centavos / 100, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em };
+    return { id: item.id, nome: item.nome, whatsapp: item.whatsapp, email: item.email ?? undefined, aniversarioDia: item.aniversario_dia ?? undefined, aniversarioMes: item.aniversario_mes ?? undefined, planoMensal, mensalista: planoMensal !== "comum", mensalidade: item.mensalidade_centavos / 100, criadoEm: item.criado_em, atualizadoEm: item.atualizado_em };
   });
 }
 
